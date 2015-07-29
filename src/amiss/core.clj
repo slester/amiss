@@ -22,23 +22,35 @@
      (repeat 5 :soldier)]))
 
 (defn player []
+  "A player object containing a hand, last card played, knowledge of other players, and knowledge of the deck."
   {:hand '()
-   :protected false
-   })
+   :last-card nil
+   :deck-knowledge {}
+   :player-knowledge []})
 
 ;; players map
 ;; * remove when they're out
 
 ;; sketch of player
-;; * is-protected? -- has princess up
+;; * last card
 ;; * hand: collection
+;; * knowledge -- can start every player with equal % chance of every card in deck-knowledge, then adjust
 
 ;; UTILITIES ;;
+(defonce is-dev? true)
+(defn omni [s & args]
+  (println s)
+  (println args)
+  (if is-dev? (println ((partial partial format (str "Omniscience: " s)) args)) identity))
+
 (defn compare-cards [card-a card-b]
   "Compares two court cards: a=b => nil, a>b => true, a<b => false."
   (let [a (court card-a)
         b (court card-b)]
     (if (= a b) nil (> a b))))
+
+;; KNOWLEDGE ;;
+(defn update-deck-knowledge [state])
 
 ;; GAME PLAY ;;
 (defn burn-card [deck]
@@ -54,7 +66,7 @@
         card (take 1 deck)
         hand (concat (player :hand) card)
         new-deck (drop 1 deck)]
-    (println hand)
+    (omni "Player %d just drew ." player-id)
     (-> state
         (assoc-in [:players player-id :hand] hand)
         (assoc-in [:deck] new-deck))))
@@ -94,9 +106,11 @@
 
 ; 7 - Minister
 ; TRIGGER
-(defn triggers-minister? [player]
+(defn triggers-minister? [state player]
   "(Minister's Power) Check if a given player has the minister and 12 or more points in their hand. If so, that player is out of the round."
-  identity)
+  (let [p (nth (state :players) player)
+        hand (player :hand)]
+    (< 11 (reduce + 0 (map court hand)))))
 
 ; 6 - General
 ; ACTION: should return a state
@@ -113,11 +127,12 @@
   identity)
 
 ; 4 - Priestess
-; ACTION: should return a state
-(defn barrier [state player]
+; TRIGGER
+(defn has-barrier? [state player]
   "(Priestess's Power) Player cannot be targeted."
-  ; adds knowledge to everyone's bank (just priestess-1)
-  identity)
+  (let [p (nth (state :players) player)
+        last-card (p :last-card)]
+    (= last-card :priestess)))
 
 ; 3 - Knight
 ; ACTION: should return a state
