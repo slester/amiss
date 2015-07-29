@@ -10,7 +10,8 @@
 (deftest test-starting-game
   (testing "Starting a new game."
     (let [state (start-game 4)]
-    (is (= 4 (count (state :players)))))))
+      (is (= 4 (count (state :players))))
+      (is (= 11 (count (state :deck)))))))
 
 (deftest test-compare-cards
   (testing "Comparing equal cards."
