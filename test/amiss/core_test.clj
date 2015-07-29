@@ -2,9 +2,15 @@
   (:require [clojure.test :refer :all]
             [amiss.core :refer :all]))
 
-(deftest test-shuffling-deck
-  (testing "The deck shuffles correctly."
-    (is (not= deck (shuffle deck)))))
+(deftest test-burning-deck
+  (testing "The deck burns a card correctly."
+    (let [deck full-deck]
+      (is (not= deck (burn-card deck))))))
+
+(deftest test-starting-game
+  (testing "Starting a new game."
+    (let [state (start-game 4)]
+    (is (= 4 (count (state :players)))))))
 
 (deftest test-compare-cards
   (testing "Comparing equal cards."

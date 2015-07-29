@@ -10,7 +10,7 @@
    :clown     2
    :soldier   1})
 
-(def deck
+(defonce full-deck
   (flatten
     [:princess
      :minister
@@ -20,6 +20,11 @@
      (repeat 2 :knight)
      (repeat 2 :clown)
      (repeat 5 :soldier)]))
+
+(defn player []
+  {:hand '()
+   :protected false
+   })
 
 ;; players map
 ;; * remove when they're out
@@ -36,32 +41,49 @@
     (if (= a b) nil (> a b))))
 
 ;; GAME PLAY ;;
-;; each of these should return a new game state
-(defn start-game [num-players]
-  "Start a new game! Shuffle, burn a card, then deal to the number of players."
-  identity)
-
-; TODO: return state
-(defn burn-card [state]
+(defn burn-card [deck]
   "Remove the top card from the deck."
   (drop 1 deck))
 
 ; TODO: return state
-(defn draw-card [state player]
+(defn draw-card [state player-id]
   "Player draws the top card from the deck."
-  (let [deck (state :deck)
-        hand (player :hand)]
-    (conj hand (take 1 deck))))
+  (let [_ (println player-id)
+        deck (state :deck)
+        player (nth (state :players) player-id)
+        card (take 1 deck)
+        hand (concat (player :hand) card)
+        new-deck (drop 1 deck)]
+    (println hand)
+    (-> state
+        (assoc-in [:players player-id :hand] hand)
+        (assoc-in [:deck] new-deck))))
+
+(defn next-turn [state]
+  "Moves to the next player's turn."
+  (let [players (state :players)]
+    (concat (first players) (rest players))))
 
 ; TODO: return state
-(defn play-card [state player card]
+(defn play-card [state player-id card]
   "Player plays the given card."
   identity)
 
 ; TODO: return state
-(defn discard-card [state player card]
+(defn discard-card [state player-id card]
   "Discards a card."
   identity)
+
+(defn start-game [num-players]
+  {:pre [(< 1 num-players)
+         (> 5 num-players)]}
+  "Start a new game of 2-4 players! Shuffle, burn a card, then deal to the number of players."
+  (let [deck (burn-card (shuffle full-deck))
+        state {:current-player 0
+               :players (vec (take num-players (repeatedly player)))
+               :deck deck}
+        players (state :players)]
+    (reduce draw-card state (range num-players))))
 
 ;; CARD POWERS ;;
 ; 8 - Princess
@@ -99,21 +121,21 @@
 
 ; 3 - Knight
 ; ACTION: should return a state
-(defn force-compare [player-a player-b]
+(defn force-compare [state player-a player-b]
   "(Knight's Power) Force two players to compare their hands. The lesser one is out of the round."
   ; adds knowledge to everyone's bank
   identity)
 
 ; 2 - Clown
 ; ACTION: should return a state
-(defn reveal-hand [target-player show-to]
+(defn reveal-hand [state target show-to]
   "(Clown's Power) Player reveals his hand to another player."
   ; adds knowledge to show-to's bank
   identity)
 
 ; 1 - Soldier
 ; ACTION: should return a state
-(defn guess-card [target guess]
+(defn guess-card [state target guess]
   "(Soldier's Power) If the target player has the guessed card, that player is out of the round."
   ; adds knowledge to everyone's bank
   identity)
