@@ -26,13 +26,24 @@
   "A player object containing a hand, last card played, knowledge of other players, and knowledge of the deck."
   {:active true
    :hand '()
-   :last-card nil
+   :discard '()
+   :last-played nil
    :deck-knowledge {}
    :player-knowledge []})
 
 ;; rule sets
 ;; - original
 ;; - tempest
+
+;; turn flow
+;; 1. is the game over? if so, stop!
+;; 2. current player draws a card
+;;   - check for minister
+;; 3. play a card
+;;  - check for playing princess
+;;  - do action for card
+;;  -- kick people out
+;; 4. go to next active player
 
 ;; players map
 ;; * remove when they're out
@@ -42,7 +53,7 @@
 ;; * hand: collection
 ;; * knowledge -- can start every player with equal % chance of every card in deck-knowledge, then adjust
 
-;; UTILITIES ;;
+;; DEBUG ;;
 (defonce is-dev? true)
 (defn omni [s & args] (if is-dev? (println (apply (partial format (str "[Omniscience] " s)) args)) identity))
 
@@ -51,14 +62,28 @@
 (defn omni-state [state]
   (when is-dev?
     (print "[Omniscience] Current game state: ")
-    (p/pprint state))
+    ;; (pprint state))
+    (println state))
   state)
 
+;; UTILITIES ;;
 (defn compare-cards [card-a card-b]
   "Compares two court cards: a=b => nil, a>b => true, a<b => false."
   (let [a (court card-a)
         b (court card-b)]
     (if (= a b) nil (> a b))))
+
+(defn get-active [state]
+  "Determine the players still in the running."
+  (let [players (state :players)]
+        (filter #(= true (% :active)) players)))
+
+(defn game-over? [state]
+  "Check the board for winning state, i.e. only one person left active or the deck is empty."
+  (let [players (state :players)]
+    (or (= 1 (count (get-active state)))
+        (= 0 (count (state :deck))))))
+
 
 ;; KNOWLEDGE ;;
 (defn update-deck-knowledge [state]
@@ -76,34 +101,40 @@
 (defn draw-card [state player-id]
   "Player draws the top card from the deck."
   (let [deck (state :deck)
-        cards-in-deck (count deck)
+        game-over (game-over? state)
+        ; If not the current player, the player is being forced to draw this card.
+        ; This may mean they have to draw a burned card if the game's over.
+        force-draw (not= player-id (state :current-player))
         burned-card (state :burned-card)
+        ; Draw a card, add the card to the player's hand, return the new deck.
         player (nth (state :players) player-id)
-        ; If there aren't any cards left, take the burned card.
-        ; TODO: remove the burned card. what if it tries to draw nil?
-        card (if (> 0 cards-in-deck) (first (take 1 deck)) burned-card)
+        card (if (and game-over force-draw) burned-card (first (take 1 deck)))
         hand (conj (player :hand) card)
-        new-deck (drop 1 deck)]
-    (omni "Player %d just drew %s (hand is now %s)." player-id card (apply str hand))
-    (-> state
-        (assoc-in [:players player-id :hand] hand)
-        (assoc-in [:deck] new-deck))))
+        new-deck (drop 1 deck)
+        ; A flag for knowing if a card was actually drawn.
+        update-hand (or (not game-over) force-draw)]
+    (when update-hand (omni "Player %d just drew %s (hand is now %s)." player-id card (apply str hand)))
+    (cond-> state
+      ; Update the player's hand if a card was drawn.
+      update-hand (assoc-in [:players player-id :hand] hand)
+      ; An empty deck is an empty deck.
+      (not game-over) (assoc-in [:deck] new-deck)
+      ; Remove the burned card if we drew it.
+      (and game-over force-draw) (assoc-in [:burned-card] nil)
+      ; If it's game over, update the game's status.
+      game-over (assoc-in [:status] :over)
+      true omni-state)))
 
 (defn remove-player [state player-id]
   "A player is removed from the round."
   (let [player (nth (state :players) player-id)]
     (assoc-in state [:players player-id :active] false)))
 
-(defn check-for-win [state]
-  "Check the board for winning state, i.e. only one person left active."
-  (let [players (state :players)]
-    (= 1 (count (filter #(= true (% :active)) players)))))
-
 (defn next-turn [state]
   "Moves to the next player's turn."
   (let [players (state :players)
         current-player-id (state :current-player)
-        next-player-id (mod (count players) (inc current-player-id))
+        next-player-id (mod (inc current-player-id) (count players))
         next-player (nth players next-player-id)]
     (cond-> (assoc-in state [:current-player] next-player-id)
       (= false (next-player :active)) next-turn)))
@@ -113,13 +144,14 @@
   "Player plays the given card."
   identity)
 
-; TODO: return state
 (defn discard-card [state player-id card]
   "Discards a card."
   (let [player (nth (state :players) player-id)
-        hand (player :hand)]
+        hand (player :hand)
+        discard (player :discard)]
     ; Discarding the princess means you're out!
     (cond-> (assoc-in state [:players player-id :hand] (disj hand card))
+      true (assoc-in state [:players player-id :discard] (conj discard card))
       (= card :princess) (remove-player player-id))))
 
 (defn start-game [num-players]
@@ -127,7 +159,8 @@
          (> 5 num-players)]}
   "Start a new game of 2-4 players! Shuffle, burn a card, then deal to the number of players."
   (let [deck (shuffle full-deck)
-        state {:current-player 0
+        state {:status :begin
+               :current-player 0
                :players (vec (take num-players (repeatedly player)))
                :deck deck}
         players (state :players)]
@@ -135,7 +168,8 @@
     (-> state
         burn-card
         ((partial reduce draw-card) (range num-players))
-        omni-state)))
+        omni-state
+        (assoc-in [:status] :playing))))
 
 ;; CARD POWERS ;;
 ; 8 - Princess
@@ -165,17 +199,17 @@
   "(Wizard's Power) Target player discards his hand and draws a new one."
   (let [p (nth (state :players) target-id)
         card (first (p :hand))]
-  (-> state
-      (discard-card target-id card)
-      (draw-card target-id))))
+    (-> state
+        (discard-card target-id card)
+        (draw-card target-id))))
 
 ; 4 - Priestess
 ; TRIGGER
 (defn has-barrier? [state player-id]
   "(Priestess's Power) Player cannot be targeted."
   (let [p (nth (state :players) player-id)
-        last-card (p :last-card)]
-    (= last-card :priestess)))
+        last-played (p :last-played)]
+    (= last-played :priestess)))
 
 ; 3 - Knight
 ; ACTION: should return a state

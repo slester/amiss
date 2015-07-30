@@ -15,8 +15,24 @@
     (let [state (start-game 4)]
       (is (= 4 (count (state :players))))
       (is (= 11 (count (state :deck))))
-      (is (= false (check-for-win state)))
+      (is (= false (game-over? state)))
     )))
+
+(deftest test-drawing
+  (testing "Drawing the entire deck."
+    (let [state (start-game 4)]
+      (loop [s state]
+        (if (not= :over (s :status))
+          (recur (-> s
+                     (draw-card (s :current-player))
+                     next-turn))
+          (do
+            ; The deck should be empty.
+            (is (empty? (s :deck)))
+            ; The burned card should still exist.
+            (is (not= nil (s :burned-card)))
+            ; Force player 1 to draw the burned card.
+            (is (= nil ((draw-card s 1) :burned-card)))))))))
 
 (deftest test-compare-cards
   (testing "Comparing equal cards."
