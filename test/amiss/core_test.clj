@@ -4,14 +4,19 @@
 
 (deftest test-burning-deck
   (testing "The deck burns a card correctly."
-    (let [deck full-deck]
-      (is (not= deck (burn-card deck))))))
+    (let [state (start-game 4)
+          deck (state :deck)
+          burn-state (burn-card state)
+          burn-state-deck (burn-state :deck) ]
+      (is (not= deck burn-state-deck)))))
 
 (deftest test-starting-game
   (testing "Starting a new game."
     (let [state (start-game 4)]
       (is (= 4 (count (state :players))))
-      (is (= 11 (count (state :deck)))))))
+      (is (= 11 (count (state :deck))))
+      (is (= false (check-for-win state)))
+    )))
 
 (deftest test-compare-cards
   (testing "Comparing equal cards."
