@@ -32,8 +32,16 @@
    :player-knowledge []})
 
 ;; rule sets
-;; - original
-;; - tempest
+;; - original (Japanese)
+;; -- names
+;; -- can tie at end, no counting discards
+;; -- 7 card => lose if 12+
+;; -- can target priestess with no effect
+;; - Tempest
+;; -- names
+;; -- ties are broken by summing discards; can still result in a tie afterward
+;; -- 7 card => discard 7 card if 5 or 6
+;; -- cannot target handmaids; must choose self if possible, otherwise no effect
 
 ;; turn flow
 ;; 1. is the game over? if so, stop!
@@ -142,6 +150,8 @@
 ; TODO: return state
 (defn play-card [state player-id card]
   "Player plays the given card."
+  ;; call power of card chosen
+  ;; call discard-card
   identity)
 
 (defn discard-card [state player-id card]
