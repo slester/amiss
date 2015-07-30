@@ -76,12 +76,15 @@
 (defn draw-card [state player-id]
   "Player draws the top card from the deck."
   (let [deck (state :deck)
+        cards-in-deck (count deck)
+        burned-card (state :burned-card)
         player (nth (state :players) player-id)
-        card (take 1 deck)
-        hand (concat (player :hand) card)
+        ; If there aren't any cards left, take the burned card.
+        ; TODO: remove the burned card. what if it tries to draw nil?
+        card (if (> 0 cards-in-deck) (first (take 1 deck)) burned-card)
+        hand (conj (player :hand) card)
         new-deck (drop 1 deck)]
-    (omni "Player %d just drew %s (hand is now %s)." player-id (apply str card) (apply str hand))
-    ; TODO: what happens if the deck is empty? Tempest rules say draw burn card.
+    (omni "Player %d just drew %s (hand is now %s)." player-id card (apply str hand))
     (-> state
         (assoc-in [:players player-id :hand] hand)
         (assoc-in [:deck] new-deck))))
