@@ -1,14 +1,14 @@
 # amiss
 
-A Clojure library designed to ... well, that part is up to you.
+A Clojure application to play, ultimately with machine-learning AI, the game Love Letter by AEG and Kanai Factory.
 
 ## Usage
 
-FIXME
+Right now, nothing is written except tests! Use `lein test`.
 
 ## License
 
-Copyright © 2015 FIXME
+Love Letter is © 2012 Alderac Entertainment Group, all rights reserved.
 
-Distributed under the Eclipse Public License either version 1.0 or (at
+This software is copyright © 2015 Stephen Lester, distributed under the Eclipse Public License either version 1.0 or (at
 your option) any later version.
