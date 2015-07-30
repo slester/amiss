@@ -1,4 +1,4 @@
-# amiss
+# amiss: Amorous MISSive
 
 A Clojure application to play, ultimately with machine-learning AI, the game Love Letter by AEG and Kanai Factory.
 
