@@ -16,8 +16,27 @@
       (is (= 4 (count (state :players))))
       (is (= 11 (count (state :deck))))
       (is (= false (game-over? state)))
-    )))
+      )))
 
+(deftest test-random-play
+  (testing "Draw and discard a random card in the hand."
+    (let [state (start-game 3)]
+      (loop [s state]
+        (let [player (s :current-player)]
+          (when (not= :over (s :status))
+            (recur (-> s
+                       (draw-card player)
+                       check-minister
+                       end-game
+                       play-card
+                       check-princess
+                       end-game
+                       next-turn
+                       omni-state
+                       ; TODO: end-game doesn't stop gameplay, should exit
+                       end-game))))))))
+
+; This will sometimes fail because the minister is getting triggered.
 (deftest test-drawing
   (testing "Drawing the entire deck."
     (let [state (start-game 4)]
@@ -25,7 +44,8 @@
         (if (not= :over (s :status))
           (recur (-> s
                      (draw-card (s :current-player))
-                     next-turn))
+                     next-turn
+                     end-game))
           (do
             ; The deck should be empty.
             (is (empty? (s :deck)))
@@ -42,8 +62,3 @@
   (testing "Comparing unequal cards, a < b."
     (is (= false (compare-cards :priestess :wizard)))))
 
-(deftest test-court-powers
-  (testing "Is the princess a princess?"
-    (is (= true (is-princess? :princess))))
-  (testing "Is a non-princess card a princess?"
-    (is (= false (is-princess? :knight)))))

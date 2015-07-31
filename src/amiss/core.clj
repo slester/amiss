@@ -1,6 +1,15 @@
 (ns amiss.core
   (:require [clojure.pprint :as p :refer [pprint]]))
 
+; TODO
+; - rounds should 'short-circuit':
+; ** state can have a 'step' -- if a player is kicked out, go to the 'end' step that tests for game end, otherwise, go to step x+1
+; ** end step checks for game over -- if not, call next-turn and go to step 0
+;; <justin_smith> slester: you could break run-turn into the individual operations that could potentially trigger an end game, and only run one of those per iteration
+;; <justin_smith> all it takes is passing a value representing which sub-item of a turn you are in
+;; <justin_smith> and dispatching on that of course
+;; <justin_smith> essentially an immutable state machine
+
 (defonce court
   {:princess  8
    :minister  7
@@ -69,12 +78,16 @@
 ; You can put this inside a -> macro!
 (defn omni-state [state]
   (when is-dev?
-    (print "[Omniscience] Current game state: ")
+    (print "\n[Omniscience] Current game state: " state "\n\n")
     ;; (pprint state))
-    (println state))
-  state)
+    ;; (println state "\n")
+    state))
 
 ;; UTILITIES ;;
+(defn remove-first [coll item] (let [sp (split-with (partial not= item) coll)] (concat (first sp) (rest (second sp)))))
+(defn add-card [coll card] (conj coll card))
+(defn remove-card [coll card] (remove-first coll card))
+
 (defn compare-cards [card-a card-b]
   "Compares two court cards: a=b => nil, a>b => true, a<b => false."
   (let [a (court card-a)
@@ -82,9 +95,9 @@
     ((comp {-1 false 0 nil 1 true} compare) a b)))
 
 (defn get-active [state]
-  "Determine the players still in the running."
+  "Determine the players still playing."
   (let [players (state :players)]
-        (filter #(= true (% :active)) players)))
+    (filter :active players)))
 
 (defn game-over? [state]
   "Check the board for winning state, i.e. only one person left active or the deck is empty."
@@ -92,11 +105,92 @@
     (or (= 1 (count (get-active state)))
         (= 0 (count (state :deck))))))
 
-
 ;; KNOWLEDGE ;;
 (defn update-deck-knowledge [state]
   ; take into account previous player's played card
   )
+
+;; GAME PLAY DECLARATIONS ;;
+;; These are used in card powers.
+(declare remove-player)
+(declare draw-card)
+(declare discard-card)
+
+
+;; CARD POWERS ;;
+; 8 - Princess - PASSIVE
+(defn check-princess [state]
+  "(Princess's Power) If you discard the princess, you're out of the round."
+  (let [players (state :players)]
+    ; TODO: check all active players' discards & kick out any with princess
+    state
+    ))
+
+; 7 - Minister - PASSIVE
+(defn check-minister [state]
+  "(Minister's Power) Check if the current player has the minister and 12 or more points in their hand. If so, that player is out of the round."
+  (let [current-id (state :current-player)
+        p ((state :players) current-id)
+        hand (p :hand)
+        has-minister? (< -1 (.indexOf hand :minister))
+        hand-12? (< 11 (reduce + 0 (map court hand))) ]
+    (if (and has-minister? hand-12?)
+      (remove-player state current-id)
+      state)))
+
+; 6 - General - ACTION
+(defn swap-hands [state a-id b-id]
+  "(General's Power) Player A and player B swap hands."
+  ; CAN add knowledge to someone's bank (if you know a card, swap, etc.)
+  (let [players (state :players)
+        a (:players a-id)
+        b (:players b-id)
+        a-hand (a :hand)
+        b-hand (b :hand)]
+    (-> state
+        (assoc-in [:players a-id :hand] b-hand)
+        (assoc-in [:players b-id :hand] a-hand))))
+
+; 5 - Wizard - ACTION
+(defn discard-draw [state target-id]
+  "(Wizard's Power) Target player discards his hand and draws a new one."
+  (let [p ((state :players) target-id)
+        card (first (p :hand))]
+    (-> state
+        (discard-card target-id card)
+        (draw-card target-id))))
+
+; 4 - Priestess - PASSIVE
+(defn has-barrier? [state player-id]
+  "(Priestess's Power) Player cannot be targeted."
+  (let [p ((state :players) player-id)
+        last-played (p :last-played)]
+    (= last-played :priestess)))
+
+; 3 - Knight - ACTION
+(defn force-compare [state a-id b-id]
+  "(Knight's Power) Force two players to compare their hands. The lesser one is out of the round."
+  (let [a ((state :players) a-id)
+        b ((state :players) b-id)
+        a-hand ((a :hand) 0)
+        b-hand ((b :hand) 0)
+        comparison (compare-cards a-hand b-hand)]
+    (cond-> state
+      (= true comparison) (remove-player b-id)
+      (= false comparison) (remove-player a-id))))
+
+; 2 - Clown - ACTION
+(defn reveal-hand [state show-to target-id]
+  "(Clown's Power) Player reveals his hand to another player."
+  identity)
+
+; 1 - Soldier - ACTION
+(defn guess-card [state target-id guess]
+  "(Soldier's Power) If the target player has the guessed card, that player is out of the round."
+  (let [p ((state :players) target-id)
+        hand ((p :hand) 0)]
+    (cond-> state
+      (= guess hand) (remove-player target-id))))
 
 ;; GAME PLAY ;;
 (defn burn-card [state]
@@ -113,48 +207,72 @@
         force-draw? (not= player-id (state :current-player))
         burned-card (state :burned-card)
         ; Draw a card, add the card to the player's hand, return the new deck.
-        player (nth (state :players) player-id)
+        p ((state :players) player-id)
         card (if (and over? force-draw?) burned-card (first (take 1 deck)))
-        hand (conj (player :hand) card)
+        hand (add-card (p :hand) card)
         new-deck (drop 1 deck)
         hand-updated? (or (not over?) force-draw?)]
-    (when hand-updated? (omni "Player %d just drew %s (hand is now %s)." player-id card (apply str hand)))
+    (when hand-updated? (omni "Player %d draws %s (hand is now %s)." player-id card (apply str hand)))
     (cond-> state
       hand-updated? (assoc-in [:players player-id :hand] hand)
+      ;; hand-updated? (check-minister player-id) ; This should be moved into the game loop, I think
       (not over?) (assoc-in [:deck] new-deck)
-      (and over? force-draw?) (assoc-in [:burned-card] nil) ; Remove the burned card if we drew it.
-      over? (assoc-in [:status] :over))))
-
-(defn remove-player [state player-id]
-  "A player is removed from the round."
-  (let [player (nth (state :players) player-id)]
-    (assoc-in state [:players player-id :active] false)))
+      (and over? force-draw?) (assoc-in [:burned-card] nil))))
 
 (defn next-turn [state]
   "Moves to the next player's turn."
   (let [players (state :players)
         current-player-id (state :current-player)
         next-player-id (mod (inc current-player-id) (count players))
-        next-player (nth players next-player-id)]
+        next-player (players next-player-id)]
     (cond-> (assoc-in state [:current-player] next-player-id)
-      (= false (next-player :active)) next-turn)))
-
-; TODO: return state
-(defn play-card [state player-id card]
-  "Player plays the given card."
-  ;; call power of card chosen
-  ;; call discard-card
-  identity)
+      (not (next-player :active)) next-turn)))
 
 (defn discard-card [state player-id card]
   "Discards a card."
-  (let [player (nth (state :players) player-id)
-        hand (player :hand)
-        discard (player :discard)]
+  (let [p ((state :players) player-id)
+        hand (p :hand)
+        discard (p :discard)]
     ; Discarding the princess means you're out!
-    (cond-> (assoc-in state [:players player-id :hand] (disj hand card))
-      true (assoc-in state [:players player-id :discard] (conj discard card))
-      (= card :princess) (remove-player player-id))))
+    (-> state
+        (assoc-in [:players player-id :hand] (remove-card hand card))
+        (assoc-in [:players player-id :discard] (add-card discard card))
+        ;; (check-princess player-id) ; should be checked during the game loop
+        )))
+
+(defn discard-hand [state player-id]
+  "Discards the entire hand."
+  (let [p ((state :players) player-id)
+        hand (p :hand)
+        discard (p :discard)]
+    (omni "Player %d discards his entire hand (%s)." player-id hand)
+    (-> state
+        (assoc-in [:players player-id :discard] (conj discard hand))
+        (assoc-in [:players player-id :hand] '()))))
+
+(defn play-card [state & chosen-card]
+  "Current player plays the provided card, or a random one if none provided."
+  (let [player-id (state :current-player)
+        p ((state :players) player-id)
+        card (if (nil? chosen-card) (rand-nth (p :hand)) chosen-card)]
+    (omni "Player %d discards %s." player-id card)
+    (-> state
+        ;;TODO: call power of card chosen
+        (assoc-in [:players player-id :last-played] card)
+        (discard-card player-id card))))
+
+(defn remove-player [state player-id]
+  "A player is removed from the round."
+  (omni "Player %d is out of the round." player-id)
+  (-> state
+      (assoc-in [:players player-id :active] false)
+      (discard-hand player-id)))
+
+(defn end-game [state]
+  "Checks to see if the game should end."
+  (if (game-over? state)
+    (assoc state :status :over)
+    state))
 
 (defn start-game [num-players]
   {:pre [(< 1 num-players 5)]}
@@ -172,87 +290,12 @@
         omni-state
         (assoc-in [:status] :playing))))
 
-;; CARD POWERS ;;
-; 8 - Princess
-; TRIGGER
-(defn is-princess? [card]
-  "(Princess's Power) If you discard the princess, you're out of the round."
-  (= :princess card))
-
-; 7 - Minister
-; TRIGGER
-(defn triggers-minister? [state player-id]
-  "(Minister's Power) Check if a given player has the minister and 12 or more points in their hand. If so, that player is out of the round."
-  (let [p (nth (state :players) player-id)
-        hand (player :hand)]
-    (< 11 (reduce + 0 (map court hand)))))
-
-; 6 - General
-; ACTION: should return a state
-(defn swap-hands [state a-id b-id]
-  "(General's Power) Player A and player B swap hands."
-  ; CAN add knowledge to someone's bank (if you know a card, swap, etc.)
-  (let [players (state :players)
-        a (:players a-id)
-        b (:players b-id)
-        a-hand (a :hand)
-        b-hand (b :hand)]
-    (-> state
-        (assoc-in [:players a-id :hand] b-hand)
-        (assoc-in [:players b-id :hand] a-hand))))
-
-; 5 - Wizard
-; ACTION: should return a state
-(defn discard-hand [state target-id]
-  "(Wizard's Power) Target player discards his hand and draws a new one."
-  (let [p (nth (state :players) target-id)
-        card (first (p :hand))]
-    (-> state
-        (discard-card target-id card)
-        (draw-card target-id))))
-
-; 4 - Priestess
-; TRIGGER
-(defn has-barrier? [state player-id]
-  "(Priestess's Power) Player cannot be targeted."
-  (let [p (nth (state :players) player-id)
-        last-played (p :last-played)]
-    (= last-played :priestess)))
-
-; 3 - Knight
-; ACTION: should return a state
-(defn force-compare [state a-id b-id]
-  "(Knight's Power) Force two players to compare their hands. The lesser one is out of the round."
-  (let [a (nth (state :players) a-id)
-        b (nth (state :players) b-id)
-        a-hand (nth (a :hand) 0)
-        b-hand (nth (b :hand) 0)
-        comparison (compare-cards a-hand b-hand)]
-    (cond-> state
-      (= true comparison) (remove-player b-id)
-      (= false comparison) (remove-player a-id))))
-
-; 2 - Clown
-; ACTION: should return a state
-(defn reveal-hand [state show-to target-id]
-  "(Clown's Power) Player reveals his hand to another player."
-  identity)
-
-; 1 - Soldier
-; ACTION: should return a state
-(defn guess-card [state target-id guess]
-  "(Soldier's Power) If the target player has the guessed card, that player is out of the round."
-  (let [p (nth (state :players) target-id)
-        hand (nth (p :hand) 0)]
-    (cond-> state
-      (= guess hand) (remove-player target-id))))
-
 (defn court-action [state played-card a-id b-id target-card]
   (let [action-map {:princess (identity state)
-                   :minister (identity state)
-                   :general (identity state)
-                   :wizard (identity state)
-                   :priestess (identity state)
-                   :knight (identity state)
-                   :clown (identity state)
-                   :soldier (identity state)}]))
+                    :minister (identity state)
+                    :general (identity state)
+                    :wizard (identity state)
+                    :priestess (identity state)
+                    :knight (identity state)
+                    :clown (identity state)
+                    :soldier (identity state)}]))
