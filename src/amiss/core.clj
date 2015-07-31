@@ -1,7 +1,7 @@
 (ns amiss.core
   (:require [clojure.pprint :as p :refer [pprint]]))
 
-(def court
+(defonce court
   {:princess  8
    :minister  7
    :general   6
@@ -79,7 +79,7 @@
   "Compares two court cards: a=b => nil, a>b => true, a<b => false."
   (let [a (court card-a)
         b (court card-b)]
-    (if (= a b) nil (> a b))))
+    ((comp {-1 false 0 nil 1 true} compare) a b)))
 
 (defn get-active [state]
   "Determine the players still in the running."
@@ -102,36 +102,28 @@
 (defn burn-card [state]
   "Remove the top card from the deck and save it to the game state."
   (let [deck (state :deck)]
-    (-> state
-        (assoc-in [:burned-card] (first deck))
-        (assoc-in [:deck] (rest deck)))))
+    (assoc state :burned-card (first deck) :deck (rest deck))))
 
 (defn draw-card [state player-id]
   "Player draws the top card from the deck."
   (let [deck (state :deck)
-        game-over (game-over? state)
+        over? (game-over? state)
         ; If not the current player, the player is being forced to draw this card.
         ; This may mean they have to draw a burned card if the game's over.
-        force-draw (not= player-id (state :current-player))
+        force-draw? (not= player-id (state :current-player))
         burned-card (state :burned-card)
         ; Draw a card, add the card to the player's hand, return the new deck.
         player (nth (state :players) player-id)
-        card (if (and game-over force-draw) burned-card (first (take 1 deck)))
+        card (if (and over? force-draw?) burned-card (first (take 1 deck)))
         hand (conj (player :hand) card)
         new-deck (drop 1 deck)
-        ; A flag for knowing if a card was actually drawn.
-        update-hand (or (not game-over) force-draw)]
-    (when update-hand (omni "Player %d just drew %s (hand is now %s)." player-id card (apply str hand)))
+        hand-updated? (or (not over?) force-draw?)]
+    (when hand-updated? (omni "Player %d just drew %s (hand is now %s)." player-id card (apply str hand)))
     (cond-> state
-      ; Update the player's hand if a card was drawn.
-      update-hand (assoc-in [:players player-id :hand] hand)
-      ; An empty deck is an empty deck.
-      (not game-over) (assoc-in [:deck] new-deck)
-      ; Remove the burned card if we drew it.
-      (and game-over force-draw) (assoc-in [:burned-card] nil)
-      ; If it's game over, update the game's status.
-      game-over (assoc-in [:status] :over)
-      true omni-state)))
+      hand-updated? (assoc-in [:players player-id :hand] hand)
+      (not over?) (assoc-in [:deck] new-deck)
+      (and over? force-draw?) (assoc-in [:burned-card] nil) ; Remove the burned card if we drew it.
+      over? (assoc-in [:status] :over))))
 
 (defn remove-player [state player-id]
   "A player is removed from the round."
@@ -165,8 +157,7 @@
       (= card :princess) (remove-player player-id))))
 
 (defn start-game [num-players]
-  {:pre [(< 1 num-players)
-         (> 5 num-players)]}
+  {:pre [(< 1 num-players 5)]}
   "Start a new game of 2-4 players! Shuffle, burn a card, then deal to the number of players."
   (let [deck (shuffle full-deck)
         state {:status :begin
@@ -201,7 +192,14 @@
 (defn swap-hands [state a-id b-id]
   "(General's Power) Player A and player B swap hands."
   ; CAN add knowledge to someone's bank (if you know a card, swap, etc.)
-  identity)
+  (let [players (state :players)
+        a (:players a-id)
+        b (:players b-id)
+        a-hand (a :hand)
+        b-hand (b :hand)]
+    (-> state
+        (assoc-in [:players a-id :hand] b-hand)
+        (assoc-in [:players b-id :hand] a-hand))))
 
 ; 5 - Wizard
 ; ACTION: should return a state
@@ -236,7 +234,7 @@
 
 ; 2 - Clown
 ; ACTION: should return a state
-(defn reveal-hand [state target-id show-to]
+(defn reveal-hand [state show-to target-id]
   "(Clown's Power) Player reveals his hand to another player."
   identity)
 
@@ -248,3 +246,14 @@
         hand (nth (p :hand) 0)]
     (cond-> state
       (= guess hand) (remove-player target-id))))
+
+(defn court-action [state played-card a-id b-id target-card]
+  (let action-map {:princess (identity state)
+                   :minister (identity state)
+                   :general (identity state)
+                   :wizard (identity state)
+                   :priestess (identity state)
+                   :knight (identity state)
+                   :clown (identity state)
+                   :soldier (identity state)})
+  (action-map card))
