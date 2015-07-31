@@ -248,12 +248,11 @@
       (= guess hand) (remove-player target-id))))
 
 (defn court-action [state played-card a-id b-id target-card]
-  (let action-map {:princess (identity state)
+  (let [action-map {:princess (identity state)
                    :minister (identity state)
                    :general (identity state)
                    :wizard (identity state)
                    :priestess (identity state)
                    :knight (identity state)
                    :clown (identity state)
-                   :soldier (identity state)})
-  (action-map card))
+                   :soldier (identity state)}]))
