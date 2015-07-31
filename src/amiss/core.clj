@@ -1,15 +1,6 @@
 (ns amiss.core
   (:require [clojure.pprint :as p :refer [pprint]]))
 
-; TODO
-; - rounds should 'short-circuit':
-; ** state can have a 'step' -- if a player is kicked out, go to the 'end' step that tests for game end, otherwise, go to step x+1
-; ** end step checks for game over -- if not, call next-turn and go to step 0
-;; <justin_smith> slester: you could break run-turn into the individual operations that could potentially trigger an end game, and only run one of those per iteration
-;; <justin_smith> all it takes is passing a value representing which sub-item of a turn you are in
-;; <justin_smith> and dispatching on that of course
-;; <justin_smith> essentially an immutable state machine
-
 (defonce court
   {:princess  8
    :minister  7
@@ -219,6 +210,7 @@
       (not over?) (assoc-in [:deck] new-deck)
       (and over? force-draw?) (assoc-in [:burned-card] nil))))
 
+; TODO: randomly fails test, nil pointer exception
 (defn next-turn [state]
   "Moves to the next player's turn."
   (let [players (state :players)
@@ -268,17 +260,65 @@
       (assoc-in [:players player-id :active] false)
       (discard-hand player-id)))
 
+(defn final-summary [state]
+  "Calculates & congratulates the winners!"
+  (omni "Here are the winners: %s" (get-active state))
+  state
+  )
+
 (defn end-game [state]
   "Checks to see if the game should end."
   (if (game-over? state)
-    (assoc state :status :over)
+    (-> (assoc state :status :over) final-summary)
     state))
+
+; TODO
+; - rounds should 'short-circuit':
+; ** state can have a 'step' -- if a player is kicked out, go to the 'end' step that tests for game end, otherwise, go to step x+1
+; ** end step checks for game over -- if not, call next-turn and go to step 0
+;; <justin_smith> slester: you could break run-turn into the individual operations that could potentially trigger an end game, and only run one of those per iteration
+;; <justin_smith> all it takes is passing a value representing which sub-item of a turn you are in
+;; <justin_smith> and dispatching on that of course
+;; <justin_smith> essentially an immutable state machine
+
+; 0 - draw-card
+; 1 - play-card
+; 2 - next-turn
+(defn next-phase [state]
+  "Moves on to the next phase of a turn."
+  (let [phase (inc (state :phase))]
+  (assoc state :phase (mod phase 3))))
+
+;; before every phase:
+;; check if current is still in the game
+;; check if game is over
+(defn play [state]
+  "Perform the next step in a player's turn."
+  (let [phase (state :phase)
+        current (state :current-player)
+        updated-state (-> state check-minister check-princess end-game)
+        players (updated-state :players)
+        current-active? ((players current) :active)
+        over? (game-over? updated-state)]
+    (cond
+      ;; If the game's over, there's nothing to be done!
+      over? updated-state
+      ;; If the current player is out of the round, move on to the next turn.
+      (not current-active?) next-turn
+      ;; Otherwise, perform the proper action for the phase
+      (= phase 0) (-> updated-state (draw-card current) next-phase)
+      (= phase 1) (-> updated-state play-card next-phase)
+      (= phase 2) (-> updated-state next-turn next-phase)
+      )
+    )
+  )
 
 (defn start-game [num-players]
   {:pre [(< 1 num-players 5)]}
   "Start a new game of 2-4 players! Shuffle, burn a card, then deal to the number of players."
   (let [deck (shuffle full-deck)
         state {:status :begin
+               :phase 0
                :current-player 0
                :players (vec (take num-players (repeatedly player)))
                :deck deck}
