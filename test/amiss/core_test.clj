@@ -22,7 +22,7 @@
   (testing "Draw and discard a random card in the hand."
     (let [state (start-game 3)
           states (take-while (complement game-over?) (iterate play state))]
-      (play (last states)))))
+      (str (last states)))))
 
 ; This will sometimes fail because the minister is getting triggered.
 (deftest test-drawing

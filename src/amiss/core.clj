@@ -124,7 +124,7 @@
         p ((state :players) current-id)
         hand (p :hand)
         has-minister? (< -1 (.indexOf hand :minister))
-        hand-12? (< 11 (reduce + 0 (map court hand))) ]
+        hand-12? (< 11 (reduce + 0 (map court hand)))]
     (if (and has-minister? hand-12?)
       (remove-player state current-id)
       state)))
@@ -207,8 +207,8 @@
     (cond-> state
       hand-updated? (assoc-in [:players player-id :hand] hand)
       ;; hand-updated? (check-minister player-id) ; This should be moved into the game loop, I think
-      (not over?) (assoc-in [:deck] new-deck)
-      (and over? force-draw?) (assoc-in [:burned-card] nil))))
+      (not over?) (assoc :deck new-deck)
+      (and over? force-draw?) (assoc :burned-card nil))))
 
 ; TODO: randomly fails test, nil pointer exception
 (defn next-turn [state]
@@ -217,7 +217,7 @@
         current-player-id (state :current-player)
         next-player-id (mod (inc current-player-id) (count players))
         next-player (players next-player-id)]
-    (cond-> (assoc-in state [:current-player] next-player-id)
+    (cond-> (assoc state :current-player next-player-id)
       (not (next-player :active)) next-turn)))
 
 (defn discard-card [state player-id card]
@@ -237,9 +237,9 @@
   (let [p ((state :players) player-id)
         hand (p :hand)
         discard (p :discard)]
-    (omni "Player %d discards his entire hand (%s)." player-id hand)
+    (omni "Player %d discards his entire hand: %s" player-id hand)
     (-> state
-        (assoc-in [:players player-id :discard] (conj discard hand))
+        (assoc-in [:players player-id :discard] (apply (partial conj discard) hand))
         (assoc-in [:players player-id :hand] '()))))
 
 (defn play-card [state & chosen-card]
@@ -262,9 +262,8 @@
 
 (defn final-summary [state]
   "Calculates & congratulates the winners!"
-  (omni "Here are the winners: %s" (get-active state))
-  state
-  )
+  (omni "Here are the winners: %s" (apply str (get-active state)))
+  state)
 
 (defn end-game [state]
   "Checks to see if the game should end."
@@ -272,26 +271,11 @@
     (-> (assoc state :status :over) final-summary)
     state))
 
-; TODO
-; - rounds should 'short-circuit':
-; ** state can have a 'step' -- if a player is kicked out, go to the 'end' step that tests for game end, otherwise, go to step x+1
-; ** end step checks for game over -- if not, call next-turn and go to step 0
-;; <justin_smith> slester: you could break run-turn into the individual operations that could potentially trigger an end game, and only run one of those per iteration
-;; <justin_smith> all it takes is passing a value representing which sub-item of a turn you are in
-;; <justin_smith> and dispatching on that of course
-;; <justin_smith> essentially an immutable state machine
-
-; 0 - draw-card
-; 1 - play-card
-; 2 - next-turn
 (defn next-phase [state]
   "Moves on to the next phase of a turn."
   (let [phase (inc (state :phase))]
-  (assoc state :phase (mod phase 3))))
+    (assoc state :phase (mod phase 3))))
 
-;; before every phase:
-;; check if current is still in the game
-;; check if game is over
 (defn play [state]
   "Perform the next step in a player's turn."
   (let [phase (state :phase)
@@ -304,14 +288,11 @@
       ;; If the game's over, there's nothing to be done!
       over? updated-state
       ;; If the current player is out of the round, move on to the next turn.
-      (not current-active?) next-turn
+      (not current-active?) (-> updated-state next-turn)
       ;; Otherwise, perform the proper action for the phase
       (= phase 0) (-> updated-state (draw-card current) next-phase)
       (= phase 1) (-> updated-state play-card next-phase)
-      (= phase 2) (-> updated-state next-turn next-phase)
-      )
-    )
-  )
+      (= phase 2) (-> updated-state next-turn next-phase))))
 
 (defn start-game [num-players]
   {:pre [(< 1 num-players 5)]}
@@ -327,8 +308,7 @@
     (-> state
         burn-card
         ((partial reduce draw-card) (range num-players))
-        omni-state
-        (assoc-in [:status] :playing))))
+        (assoc :status :playing))))
 
 (defn court-action [state played-card a-id b-id target-card]
   (let [action-map {:princess (identity state)
