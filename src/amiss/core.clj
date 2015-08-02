@@ -43,22 +43,7 @@
 ;; -- 7 card => discard 7 card if 5 or 6
 ;; -- cannot target handmaids; must choose self if possible, otherwise no effect
 
-;; turn flow
-;; 1. is the game over? if so, stop!
-;; 2. current player draws a card
-;;   - check for minister
-;; 3. play a card
-;;  - check for playing princess
-;;  - do action for card
-;;  -- kick people out
-;; 4. go to next active player
-
-;; players map
-;; * remove when they're out
-
 ;; sketch of player
-;; * last card
-;; * hand: collection
 ;; * knowledge -- can start every player with equal % chance of every card in deck-knowledge, then adjust
 
 ;; DEBUG ;;
@@ -305,34 +290,30 @@
 (defn final-summary [state]
   "Calculates & congratulates the winners!"
   (let [winners (mapcat (fn [i m] (if (true? (m :active)) [i])) (range) (state :players))]
-    (when (< 1 (count winners))
+    (if (< 1 (count winners))
       (do
+        ;; TODO break ties if Tempest
         (announce "The following players have tied: %s" (clojure.string/join ", " winners))
-        ;; TODO break ties
-        ))
-    (announce "The winner is player %d!" (first winners))
-    state))
+        state)
+      (do
+        (announce "The winner is player %d!" (first winners))
+        state))))
 
 (defn check-end-game [state]
   "Checks to see if the game should end."
-  (omni "Checking if we should end the game... %s" (game-over? state))
   (if (game-over? state)
-    (-> (assoc state :status :over) final-summary)
+    (-> (assoc state :status :over))
     state))
 
 (defn next-phase [state]
   "Moves on to the next phase of a turn."
   (let [phase (mod (inc (state :phase)) 3)]
-    (omni "Phase %d" phase)
     (assoc state :phase phase)))
 
-; TODO - the final message doesn't play if the game ends on phase 0/2 -- why?
-; game will end if you take an extra step, so everything's working, must be timing?
 (defn play [state]
-  "Perform the next step in a player's turn."
+  "Perform the next step in a player's turn. Iterating over this function drives game play."
   (let [phase (state :phase)
         current (state :current-player)
-        _ (println (check-end-game state))
         updated-state (-> state check-minister check-princess check-end-game)
         players (updated-state :players)
         current-active? ((players current) :active)
@@ -348,17 +329,19 @@
       (= phase 1) (-> updated-state play-card next-phase)
       (= phase 2) (-> updated-state next-turn))))
 
-(defn start-game [num-players]
-  {:pre [(< 1 num-players 5)]}
+(defn start-game [num-players rule-set]
+  {:pre [(< 1 num-players 5)
+         (or (= rule-set :original) (= rule-set :tempest))]}
   "Start a new game of 2-4 players! Shuffle, burn a card, then deal to the number of players."
   (let [deck (shuffle full-deck)
         state {:status :begin
                :phase 0
                :current-player 0
+               :rule-set rule-set
                :players (vec (take num-players (repeatedly player)))
                :deck deck}
         players (state :players)]
-    (announce "A new game with %d players begins." num-players)
+    (announce "A new game of %d players using the %s ruleset begins." num-players rule-set)
     (-> state
         burn-card
         ((partial reduce draw-card) (range num-players))

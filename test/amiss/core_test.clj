@@ -4,7 +4,7 @@
 
 (deftest test-burning-deck
   (testing "The deck burns a card correctly."
-    (let [state (start-game 4)
+    (let [state (start-game 4 :original)
           deck (state :deck)
           burn-state (burn-card state)
           burn-state-deck (burn-state :deck) ]
@@ -12,7 +12,7 @@
 
 (deftest test-starting-game
   (testing "Starting a new game."
-    (let [state (start-game 4)]
+    (let [state (start-game 4 :original)]
       (is (= 4 (count (state :players))))
       (is (= 11 (count (state :deck))))
       (is (= false (game-over? state)))
@@ -20,9 +20,9 @@
 
 (deftest test-random-play
   (testing "Draw and discard a random card in the hand."
-    (let [state (start-game 3)
+    (let [state (start-game 3 :original)
           states (split-with (complement game-over?) (iterate play state))]
-      (println (second (second states))))))
+      (final-summary (first (second states))))))
 
 (deftest test-compare-cards
   (testing "Comparing equal cards."
