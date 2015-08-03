@@ -92,6 +92,8 @@
 (declare remove-player)
 (declare draw-card)
 (declare discard-card)
+(declare remove-from-deck-knowledge)
+(declare add-to-player-knowledge)
 
 
 ;; CARD POWERS ;;
@@ -167,21 +169,31 @@
         state)
       (do
         (announce "Player %d and player %d compare hands.." current-id target-id)
-        (cond-> state
-          ; a > b => true, a < b => false, tie = nil
-          (= true comparison) (remove-player target-id)
-          (= false comparison) (remove-player current-id))
-        ))))
+        (cond
+          ;; a > b => true, a < b => false, tie = nil
+          ;; We know the player had a higher card than the target, everyone gets that information.
+          (= true comparison) (-> state
+                                  (remove-player target-id))
+          ;; We know the target had a higher card than the player; everyone gets this information.
+          (= false comparison) (-> state
+                                   (remove-player current-id))
+          ;; If they tie, we know they're the same! TODO as this could get really difficult
+          :else (-> state))))))
 
 ; 2 - Clown - ACTION
 (defn reveal-hand [state target-id]
   "(Clown's Power) Player reveals his hand to another player."
-  (let [current-id (state :current-player)]
+  (let [current-id (state :current-player)
+        players (state :players)
+        target (players target-id)
+        target-hand (target :hand)]
     (announce "Player %d shows his hand to player %d." target-id (state :current-player))
     ; TODO reveal information
     (if (= current-id target-id)
+      ;; If the player has to choose herself, nothing happens.
       state
-      state)))
+      ;; Otherwise, the current player gets extra information!
+      (add-to-player-knowledge state current-id target-id target-hand))))
 
 ; 1 - Soldier - ACTION
 (defn guess-card [state target-id guess]
@@ -195,8 +207,14 @@
         state)
       (do
         (announce "Player %d guesses that player %d is %s." current-id target-id guess)
-        (cond-> state
-          (= guess hand) (remove-player target-id))))))
+        (if (= guess hand)
+          ;; Everyone learns something about the deck when the player discards in remove-player.
+          (-> state
+              (remove-player target-id))
+          ;; Otherwise, we learn that the person could be anyone in the deck MINUS the guess.
+          ;; TODO
+          (-> state
+              ))))))
 
 (defn court-action [state played-card target guess]
   (condp = played-card
@@ -229,6 +247,8 @@
     (cond-> state
       true (assoc-in [:players player-id :hand] hand)
       true (assoc :deck new-deck)
+      ;; The player knows something new about what's left in the deck.
+      true (remove-from-deck-knowledge player-id card)
       deck-empty? (assoc :burned-card nil))))
 
 (defn next-turn [state]
@@ -246,21 +266,24 @@
   (let [p ((state :players) player-id)
         hand (p :hand)
         discard (p :discard)]
-    ; Discarding the princess means you're out!
     (announce "Player %d discards %s." player-id card)
+    ; TODO update player-knowledge and deck-knowledge
     (-> state
         (assoc-in [:players player-id :hand] (remove-card hand card))
         (assoc-in [:players player-id :discard] (add-card discard card)))))
 
+; TODO rep this by calling discard-card twice?
 (defn discard-hand [state player-id]
   "Discards the entire hand."
   (let [p ((state :players) player-id)
         hand (p :hand)
         discard (p :discard)]
-    (announce "Player %d discards his entire hand: %s" player-id (apply str hand))
-    (-> state
-        (assoc-in [:players player-id :discard] (apply (partial conj discard) hand))
-        (assoc-in [:players player-id :hand] '()))))
+    ;; (announce "Player %d discards his entire hand: %s" player-id (apply str hand))
+    (reduce (fn [s card] (discard-card s player-id card)) state hand)
+    ;; (-> state
+    ;;     (assoc-in [:players player-id :discard] (apply (partial conj discard) hand))
+    ;;     (assoc-in [:players player-id :hand] '()))
+    ))
 
 (defn play-card [state & {:keys [played-card target-id guess]}]
   "Current player plays the provided card, or a random one if none provided."
@@ -274,7 +297,8 @@
         non-soldiers (filter #(not= :soldier %) (state :deck))
         guessed-card (if (nil? guess) (if (< 0 (count non-soldiers)) (rand-nth non-soldiers) :princess) guess)
         card (if (nil? played-card) (rand-nth (p :hand)) played-card)]
-
+    ; TODO remove the card from the player knowledge of every *other* player
+    ; TODO remove the card from the deck knowledge of every *other* player
     (-> state
         (assoc-in [:players player-id :last-played] card)
         (discard-card player-id card)
@@ -308,6 +332,7 @@
 (defn next-phase [state]
   "Moves on to the next phase of a turn."
   (let [phase (mod (inc (state :phase)) 3)]
+    (omni "Phase %d" phase)
     (assoc state :phase phase)))
 
 (defn play [state]
@@ -329,6 +354,40 @@
       (= phase 1) (-> updated-state play-card next-phase)
       (= phase 2) (-> updated-state next-turn))))
 
+;;; KNOWLEDGE ;;;
+(defn initialize-knowledge [state]
+  (let [players (state :players)
+        num-players (count players)]
+    (-> state
+        (assoc :players (vec (map #(assoc % :deck-knowledge full-deck :player-knowledge (vec (repeat num-players '()))) players)))
+        )))
+
+(defn remove-from-deck-knowledge [state player-id card]
+  "Remove a known card from a player's deck knowledge."
+  (let [players (state :players)
+        p (players player-id)
+        deck-knowledge (p :deck-knowledge)]
+    ;; TODO we can also remove data from players' knowledge
+  (assoc-in state [:players player-id :deck-knowledge] (remove-first deck-knowledge card))))
+
+;; TODO another idea, just keep all players up to date with the deck, removing as we find out more info?
+(defn add-to-player-knowledge [state player-id target-id cards]
+  "Add information about the target player to the player's knowledge. We can also remove a card from the deck knowledge if it's a single card."
+  (let [players (state :players)
+        p (players player-id)
+        deck-knowledge (p :deck-knowledge)
+        all-player-knowledge (p :player-knowledge)
+        target-player-knowledge (all-player-knowledge target-id)]
+    (if (< 1 (count cards))
+           ;; If we just know a range of cards, we don't want to eliminate anything from the deck.
+           ;; TODO we need to merge this somehow
+           (assoc-in state [:players player-id :player-knowledge target-id] (concat target-player-knowledge cards))
+           ;; Otherwise, though, we can remove a card from the deck as well.
+           (do
+             (-> state
+               (assoc-in [:players player-id :player-knowledge target-id] cards)
+               (remove-from-deck-knowledge player-id (first cards)))))))
+
 (defn start-game [num-players rule-set]
   {:pre [(< 1 num-players 5)
          (or (= rule-set :original) (= rule-set :tempest))]}
@@ -343,6 +402,7 @@
         players (state :players)]
     (announce "A new game of %d players using the %s ruleset begins." num-players rule-set)
     (-> state
+        initialize-knowledge
         burn-card
         ((partial reduce draw-card) (range num-players))
         (assoc :status :playing))))
