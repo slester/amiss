@@ -64,6 +64,8 @@
 (defn remove-first [coll item] (let [sp (split-with (partial not= item) coll)] (concat (first sp) (rest (second sp)))))
 (defn add-card [coll card] (conj coll card))
 (defn remove-card [coll card] (remove-first coll card))
+(defn seq-contains? [coll card] (boolean (some #(= % card) coll)))
+;; (defn delete-element [vc pos] (vec (concat (subvec 0 pos) (subvec (inc pos)))))
 
 (defn compare-cards [card-a card-b]
   "Compares two court cards: a=b => nil, a>b => true, a<b => false."
@@ -94,6 +96,7 @@
 (declare discard-card)
 (declare remove-from-deck-knowledge)
 (declare add-to-player-knowledge)
+(declare should-play-soldier?)
 
 
 ;; CARD POWERS ;;
@@ -290,7 +293,7 @@
   (let [current-player ((state :players) (state :current-player))
         hand (current-player :hand)]
     (if (some #(= :princess %) hand)
-      (filter #(not= :princess %) hand)
+      (first (filter #(not= :princess %) hand))
       (rand-nth hand))))
 
 (defn play-card [state & {:keys [played-card target-id guess]}]
@@ -307,6 +310,7 @@
         card (random-card state)]
     ; TODO remove the card from the player knowledge of every *other* player
     ; TODO remove the card from the deck knowledge of every *other* player
+    (omni "Should the player play a soldier? %s" (should-play-soldier? state))
     (-> state
         (assoc-in [:players player-id :last-played] card)
         (discard-card player-id card)
@@ -367,7 +371,7 @@
   (let [players (state :players)
         num-players (count players)]
     (-> state
-        (assoc :players (vec (map #(assoc % :deck-knowledge full-deck :player-knowledge (vec (repeat num-players '()))) players)))
+        (assoc :players (vec (map #(assoc % :deck-knowledge (frequencies full-deck) :player-knowledge (vec (repeat num-players (frequencies full-deck)))) players)))
         )))
 
 (defn remove-from-deck-knowledge [state player-id card]
@@ -376,13 +380,31 @@
         p (players player-id)
         deck-knowledge (p :deck-knowledge)]
     ;; TODO we can also remove data from players' knowledge
-  (assoc-in state [:players player-id :deck-knowledge] (remove-first deck-knowledge card))))
+  (assoc-in state [:players player-id :deck-knowledge card] (dec (deck-knowledge card)))))
 
 ;; Given what you know about a player, what are the probabilities of what is in her hand?
-(defn probabilities [player-knowledge])
+(defn card-probabilities [player-knowledge]
+  "Calculate the probabilities of what is in a player's hand, given knowledge about it."
+  ;; sum up all cards in hand, divide by that
+  (let [total (reduce (fn [sum card] (+ sum (player-knowledge card))) 0 (keys player-knowledge))]
+    (into {} (for [[k v] player-knowledge] [k (/ v total)]))))
 
 ;; Should the player play a soldier?
-(defn should-play-soldier? [])
+(defn should-play-soldier? [state]
+  ;; Get all the other players' probabilities, sort by highest probability, if >0.80, true
+  (let [current-id (state :current-player)
+        players (state :players)
+        current-player (players current-id)
+        all-player-knowledge (current-player :player-knowledge)
+        all-probabilities (vec (map card-probabilities all-player-knowledge))
+        ]
+    (omni "Player probabilities...")
+    (not= nil (some (fn [p]
+                      (let [probs (nth all-probabilities p)
+                            top-prob-map (into (sorted-map-by (fn [k1 k2] (>= (probs k1) (probs k2)))) probs)]
+                        (omni "-- Player %d: %s" p (vec (remove-first top-prob-map :soldier)))
+                        (< 0.8 (val (first (remove-first top-prob-map :soldier))))))
+                    (range (count players))))))
 
 ;; What should I guess if I play a soldier?
 (defn formulate-guess [state])
@@ -397,10 +419,7 @@
 ;; TODO: lower priority: play minister if there are lots of 5+ cards left in the deck
 (defn pick-card-to-play [state])
 
-;; TODO each should be a frequency map, {:princess 1 :knight 2 :soldier 3}
-;; starts out as equal for all users, then we +/- from one, do opposite from the other
-;; for instance, we know a user is a wizard, we subtract all he has except the wizard & add them to deck
-;; if a user is unknown (i.e. all are 0? do we reset this when they play a card we knew?) reset to what we think the deck is
+;; TODO if a user is unknown (i.e. all are 0? do we reset this when they play a card we knew?) reset to what we think the deck is
 (defn add-to-player-knowledge [state player-id target-id cards]
   "Add information about the target player to the player's knowledge. We can also remove a card from the deck knowledge if it's a single card."
   (let [players (state :players)
@@ -408,16 +427,20 @@
         deck-knowledge (p :deck-knowledge)
         all-player-knowledge (p :player-knowledge)
         target-player-knowledge (all-player-knowledge target-id)]
-    (if (< 1 (count cards))
-           ;; If we just know a range of cards, we don't want to eliminate anything from the deck.
-           ;; TODO we want the deck-probability to go down while the player-probabilities go up
-           ;; TODO we need to merge this somehow
-           (assoc-in state [:players player-id :player-knowledge target-id] (concat target-player-knowledge cards))
-           ;; Otherwise, though, we can remove a card from the deck as well.
-           (do
-             (-> state
-               (assoc-in [:players player-id :player-knowledge target-id] cards)
-               (remove-from-deck-knowledge player-id (first cards)))))))
+    (omni "Player knowledge before updating... %s" (card-probabilities target-player-knowledge))
+    (cond-> state
+      true (assoc-in [:players player-id :player-knowledge target-id]
+                     (into {} (for [[k v] target-player-knowledge]
+                                [k (if (seq-contains? cards k) v 0)])))
+      (< 1 (count cards)) (remove-from-deck-knowledge player-id (first cards)))))
+
+;; TODO: If they play a card we had marked as 1, reset from deck knowledge
+;; TODO: think about this!
+(defn remove-from-player-knowledge [state player-id target-id cards]
+  "Remove information about the player.")
+
+(defn swap-player-knowledge [state a-id b-id]
+  "Swap the knowledge everyone has about a and b.")
 
 (defn start-game [num-players rule-set]
   {:pre [(< 1 num-players 5)
