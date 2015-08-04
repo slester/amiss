@@ -285,6 +285,14 @@
     ;;     (assoc-in [:players player-id :hand] '()))
     ))
 
+(defn random-card [state]
+  "Pick a random card from your hand to play, except the Princess."
+  (let [current-player ((state :players) (state :current-player))
+        hand (current-player :hand)]
+    (if (some #(= :princess %) hand)
+      (filter #(not= :princess %) hand)
+      (rand-nth hand))))
+
 (defn play-card [state & {:keys [played-card target-id guess]}]
   "Current player plays the provided card, or a random one if none provided."
   (let [player-id (state :current-player)
@@ -296,7 +304,7 @@
         target-player (if (nil? target-id) random-player-id target-id)
         non-soldiers (filter #(not= :soldier %) (state :deck))
         guessed-card (if (nil? guess) (if (< 0 (count non-soldiers)) (rand-nth non-soldiers) :princess) guess)
-        card (if (nil? played-card) (rand-nth (p :hand)) played-card)]
+        card (random-card state)]
     ; TODO remove the card from the player knowledge of every *other* player
     ; TODO remove the card from the deck knowledge of every *other* player
     (-> state
@@ -370,7 +378,29 @@
     ;; TODO we can also remove data from players' knowledge
   (assoc-in state [:players player-id :deck-knowledge] (remove-first deck-knowledge card))))
 
-;; TODO another idea, just keep all players up to date with the deck, removing as we find out more info?
+;; Given what you know about a player, what are the probabilities of what is in her hand?
+(defn probabilities [player-knowledge])
+
+;; Should the player play a soldier?
+(defn should-play-soldier? [])
+
+;; What should I guess if I play a soldier?
+(defn formulate-guess [state])
+
+;; Using the information we have, which card should I play?
+;; TODO: NEVER PRIESTESS. SERIOUSLY YOU GUYS.
+;; TODO: soldier if you have a soldier and know with 100%? less? probability of a player's card
+;; TODO: wizard if you know someone has the princess if you can; wizard yourself if you have a low card late in the game?
+;; TODO: knight if you know you have a higher card than someone else (x% probability?)
+;; TODO: priestess if there are lots of soldiers, knights are out there and your other card is low
+;; TODO: general: keep if 7+8 are out. exchange if >x soldiers exist & you have princess?
+;; TODO: lower priority: play minister if there are lots of 5+ cards left in the deck
+(defn pick-card-to-play [state])
+
+;; TODO each should be a frequency map, {:princess 1 :knight 2 :soldier 3}
+;; starts out as equal for all users, then we +/- from one, do opposite from the other
+;; for instance, we know a user is a wizard, we subtract all he has except the wizard & add them to deck
+;; if a user is unknown (i.e. all are 0? do we reset this when they play a card we knew?) reset to what we think the deck is
 (defn add-to-player-knowledge [state player-id target-id cards]
   "Add information about the target player to the player's knowledge. We can also remove a card from the deck knowledge if it's a single card."
   (let [players (state :players)
@@ -380,6 +410,7 @@
         target-player-knowledge (all-player-knowledge target-id)]
     (if (< 1 (count cards))
            ;; If we just know a range of cards, we don't want to eliminate anything from the deck.
+           ;; TODO we want the deck-probability to go down while the player-probabilities go up
            ;; TODO we need to merge this somehow
            (assoc-in state [:players player-id :player-knowledge target-id] (concat target-player-knowledge cards))
            ;; Otherwise, though, we can remove a card from the deck as well.
