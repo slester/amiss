@@ -281,12 +281,7 @@
   (let [p ((state :players) player-id)
         hand (p :hand)
         discard (p :discard)]
-    ;; (announce "Player %d discards his entire hand: %s" player-id (apply str hand))
-    (reduce (fn [s card] (discard-card s player-id card)) state hand)
-    ;; (-> state
-    ;;     (assoc-in [:players player-id :discard] (apply (partial conj discard) hand))
-    ;;     (assoc-in [:players player-id :hand] '()))
-    ))
+    (reduce (fn [s card] (discard-card s player-id card)) state hand)))
 
 (defn random-card [state]
   "Pick a random card from your hand to play, except the Princess."
@@ -371,8 +366,12 @@
   (let [players (state :players)
         num-players (count players)]
     (-> state
-        (assoc :players (vec (map #(assoc % :deck-knowledge (frequencies full-deck) :player-knowledge (vec (repeat num-players (frequencies full-deck)))) players)))
-        )))
+        (assoc :players (vec (map
+                               ;; Players start out having no knowledge of the deck or of other players.
+                               #(assoc %
+                                       :deck-knowledge (frequencies full-deck)
+                                       :player-knowledge (vec (repeat num-players (frequencies full-deck))))
+                               players))))))
 
 (defn remove-from-deck-knowledge [state player-id card]
   "Remove a known card from a player's deck knowledge."
@@ -380,7 +379,7 @@
         p (players player-id)
         deck-knowledge (p :deck-knowledge)]
     ;; TODO we can also remove data from players' knowledge
-  (assoc-in state [:players player-id :deck-knowledge card] (dec (deck-knowledge card)))))
+    (assoc-in state [:players player-id :deck-knowledge card] (dec (deck-knowledge card)))))
 
 ;; Given what you know about a player, what are the probabilities of what is in her hand?
 (defn card-probabilities [player-knowledge]
@@ -417,9 +416,29 @@
 ;; TODO: priestess if there are lots of soldiers, knights are out there and your other card is low
 ;; TODO: general: keep if 7+8 are out. exchange if >x soldiers exist & you have princess?
 ;; TODO: lower priority: play minister if there are lots of 5+ cards left in the deck
-(defn pick-card-to-play [state])
+(defn pick-card-to-play [state]
+  ;; TODO: Attack priority
+
+  ;; TODO: Utility priority
+
+  ;; TODO: random
+  )
 
 ;; TODO if a user is unknown (i.e. all are 0? do we reset this when they play a card we knew?) reset to what we think the deck is
+(defn knowledge? [state player-id target-id]
+  "Does the player have knowledge on the target?"
+  (let [players (state :players)
+        p (players player-id)
+        target-knowledge (nth (p :player-knowledge) target-id)]
+    (not= nil (some #(not= 0 %) target-knowledge))))
+
+(defn reset-player-knowledge [state player-id target-id]
+  "A player could have anything in the deck."
+  (let [players (state :players)
+        p (players player-id)
+        deck-knowledge (p :deck-knowledge)]
+    (assoc-in state [:players player-id :player-knowledge target-id] deck-knowledge)))
+
 (defn add-to-player-knowledge [state player-id target-id cards]
   "Add information about the target player to the player's knowledge. We can also remove a card from the deck knowledge if it's a single card."
   (let [players (state :players)
