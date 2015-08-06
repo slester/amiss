@@ -123,7 +123,6 @@
 ; 6 - General - ACTION
 (defn swap-hands [state target-id]
   "(General's Power) Player A and player B swap hands."
-  ; CAN add knowledge to someone's bank (if you know a card, swap, etc.)
   (let [players (state :players)
         current-id (state :current-player)
         current (players current-id)
@@ -137,6 +136,8 @@
       (do
         (announce "Player %d and player %d swap hands." (state :current-player) target-id)
         (-> state
+            ;; TODO after swap, swap knowledge for everyone, then a knows what b is, b knows what a is
+            (swap-player-knowledge current-id target-id)
             (assoc-in [:players current-id :hand] target-hand)
             (assoc-in [:players target-id :hand] current-hand))))))
 
