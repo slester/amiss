@@ -97,6 +97,7 @@
 (declare remove-from-deck-knowledge)
 (declare add-to-player-knowledge)
 (declare should-play-soldier?)
+(declare swap-player-knowledge)
 
 
 ;; CARD POWERS ;;
@@ -123,6 +124,7 @@
 ; 6 - General - ACTION
 (defn swap-hands [state target-id]
   "(General's Power) Player A and player B swap hands."
+  ; CAN add knowledge to someone's bank (if you know a card, swap, etc.)
   (let [players (state :players)
         current-id (state :current-player)
         current (players current-id)
@@ -136,7 +138,7 @@
       (do
         (announce "Player %d and player %d swap hands." (state :current-player) target-id)
         (-> state
-            ;; TODO after swap, swap knowledge for everyone, then a knows what b is, b knows what a is
+            ;; TODO each knows each other's hand
             (swap-player-knowledge current-id target-id)
             (assoc-in [:players current-id :hand] target-hand)
             (assoc-in [:players target-id :hand] current-hand))))))
@@ -380,7 +382,7 @@
         p (players player-id)
         deck-knowledge (p :deck-knowledge)]
     ;; TODO we can also remove data from players' knowledge
-    (assoc-in state [:players player-id :deck-knowledge card] (dec (deck-knowledge card)))))
+  (assoc-in state [:players player-id :deck-knowledge card] (dec (deck-knowledge card)))))
 
 ;; Given what you know about a player, what are the probabilities of what is in her hand?
 (defn card-probabilities [player-knowledge]
@@ -417,13 +419,7 @@
 ;; TODO: priestess if there are lots of soldiers, knights are out there and your other card is low
 ;; TODO: general: keep if 7+8 are out. exchange if >x soldiers exist & you have princess?
 ;; TODO: lower priority: play minister if there are lots of 5+ cards left in the deck
-(defn pick-card-to-play [state]
-  ;; TODO: Attack priority
-
-  ;; TODO: Utility priority
-
-  ;; TODO: random
-  )
+(defn pick-card-to-play [state])
 
 ;; TODO if a user is unknown (i.e. all are 0? do we reset this when they play a card we knew?) reset to what we think the deck is
 (defn knowledge? [state player-id target-id]
