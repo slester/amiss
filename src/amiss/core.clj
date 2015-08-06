@@ -1,5 +1,5 @@
-(ns amiss.core
-  (:require [clojure.pprint :as p :refer [pprint]]))
+(ns amiss.core)
+
 
 (defonce court
   {:princess  8
@@ -43,9 +43,6 @@
 ;; -- 7 card => discard 7 card if 5 or 6
 ;; -- cannot target handmaids; must choose self if possible, otherwise no effect
 
-;; sketch of player
-;; * knowledge -- can start every player with equal % chance of every card in deck-knowledge, then adjust
-
 ;; DEBUG ;;
 (defonce is-dev? true)
 (defn omni [s & args] (if is-dev? (println (apply (partial format (str "[Omniscience] " s)) args)) identity))
@@ -56,8 +53,6 @@
 (defn omni-state [state]
   (when is-dev?
     (print "\n[Omniscience] Current game state: " state "\n\n")
-    ;; (pprint state))
-    ;; (println state "\n")
     state))
 
 ;; UTILITIES ;;
@@ -84,11 +79,6 @@
     (or (= 1 (count (get-active state)))
         (= 0 (count (state :deck))))))
 
-;; KNOWLEDGE ;;
-(defn update-deck-knowledge [state]
-  ; take into account previous player's played card
-  )
-
 ;; GAME PLAY DECLARATIONS ;;
 ;; These are used in card powers.
 (declare remove-player)
@@ -98,7 +88,6 @@
 (declare add-to-player-knowledge)
 (declare should-play-soldier?)
 (declare swap-player-knowledge)
-
 
 ;; CARD POWERS ;;
 ; 8 - Princess - PASSIVE
@@ -138,10 +127,11 @@
       (do
         (announce "Player %d and player %d swap hands." (state :current-player) target-id)
         (-> state
-            ;; TODO each knows each other's hand
-            (swap-player-knowledge current-id target-id)
             (assoc-in [:players current-id :hand] target-hand)
-            (assoc-in [:players target-id :hand] current-hand))))))
+            (assoc-in [:players target-id :hand] current-hand)
+            (swap-player-knowledge current-id target-id)
+            (add-to-player-knowledge current-id target-id current-hand)
+            (add-to-player-knowledge target-id current-id target-hand))))))
 
 ; 5 - Wizard - ACTION - Can target self.
 (defn discard-draw [state target-id]
@@ -149,9 +139,9 @@
   (let [p ((state :players) target-id)
         card (first (p :hand))]
     (announce "Player %d targets player %d." (state :current-player) target-id)
-    (-> state
-        (discard-card target-id card)
-        (draw-card target-id))))
+    (cond-> state
+        true (discard-card target-id card)
+        (not= card :princess) (draw-card target-id))))
 
 ; 4 - Priestess - PASSIVE
 (defn has-barrier? [state player-id]
@@ -318,8 +308,8 @@
   "A player is removed from the round."
   (announce "Player %d is out of the round." player-id)
   (-> state
-      (assoc-in [:players player-id :active] false)
-      (discard-hand player-id)))
+      (discard-hand player-id)
+      (assoc-in [:players player-id :active] false)))
 
 (defn final-summary [state]
   "Calculates & congratulates the winners!"
@@ -387,7 +377,7 @@
 ;; Given what you know about a player, what are the probabilities of what is in her hand?
 (defn card-probabilities [player-knowledge]
   "Calculate the probabilities of what is in a player's hand, given knowledge about it."
-  ;; sum up all cards in hand, divide by that
+  ;; sum up all cards in hand, divide by total
   (let [total (reduce (fn [sum card] (+ sum (player-knowledge card))) 0 (keys player-knowledge))]
     (into {} (for [[k v] player-knowledge] [k (/ v total)]))))
 
@@ -398,11 +388,12 @@
         players (state :players)
         current-player (players current-id)
         all-player-knowledge (current-player :player-knowledge)
-        all-probabilities (vec (map card-probabilities all-player-knowledge))
-        ]
+        all-probabilities (vec (map card-probabilities all-player-knowledge))]
     (omni "Player probabilities...")
     (not= nil (some (fn [p]
-                      (let [probs (nth all-probabilities p)
+                            ;; We can't target other soldiers.
+                      (let [probs (dissoc (nth all-probabilities p) :soldier)
+                            ;; Map of type => probability
                             top-prob-map (into (sorted-map-by (fn [k1 k2] (>= (probs k1) (probs k2)))) probs)]
                         (omni "-- Player %d: %s" p (vec (remove-first top-prob-map :soldier)))
                         (< 0.8 (val (first (remove-first top-prob-map :soldier))))))
@@ -442,6 +433,8 @@
         p (players player-id)
         deck-knowledge (p :deck-knowledge)
         all-player-knowledge (p :player-knowledge)
+        _ (println target-id)
+        _ (println all-player-knowledge)
         target-player-knowledge (all-player-knowledge target-id)]
     (omni "Player knowledge before updating... %s" (card-probabilities target-player-knowledge))
     (cond-> state
@@ -453,10 +446,17 @@
 ;; TODO: If they play a card we had marked as 1, reset from deck knowledge
 ;; TODO: think about this!
 (defn remove-from-player-knowledge [state player-id target-id cards]
-  "Remove information about the player.")
+  "Remove information about the player."
+  ;; (let [players (state :players)
+  ;;       p (players player-id)]
+  ;;   )
+  state
+  )
 
 (defn swap-player-knowledge [state a-id b-id]
-  "Swap the knowledge everyone has about a and b.")
+  "Swap the knowledge everyone has about a and b."
+  ;; TODO
+  state)
 
 (defn start-game [num-players rule-set]
   {:pre [(< 1 num-players 5)
