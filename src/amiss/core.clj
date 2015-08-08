@@ -1,5 +1,8 @@
 (ns amiss.core)
 
+;; overarching TODO
+;; -- we can remove player info by 1 (targeted by soldier) or completely (knight, etc) but this uses the same function
+
 (defonce court
   {:princess  8
    :minister  7
@@ -197,8 +200,9 @@
               (remove-player target-id))
           ;; Otherwise, we learn that the person could be anyone in the deck MINUS the guess.
           ;; TODO
-          (-> state
-              ))))))
+          (do (announce "Player %d is not a %s!" target-id guess)
+              (-> state
+                  )))))))
 
 (defn court-action [state played-card target guess]
   (condp = played-card
@@ -251,10 +255,11 @@
         hand (p :hand)
         discard (p :discard)]
     (announce "Player %d discards %s." player-id card)
-    ; TODO update player-knowledge and deck-knowledge
     (-> state
         (assoc-in [:players player-id :hand] (remove-card hand card))
-        (assoc-in [:players player-id :discard] (add-card discard card)))))
+        (assoc-in [:players player-id :discard] (add-card discard card))
+        ((partial reduce (fn [s v] (remove-deck-knowledge s v card))) (all-but-player state player-id))
+        ((partial reduce (fn [s v] (remove-player-knowledge s v player-id (list card)))) (all-but-player state player-id)))))
 
 (defn discard-hand [state player-id]
   "Discards the entire hand."
@@ -283,12 +288,9 @@
         non-soldiers (filter #(not= :soldier %) (state :deck))
         guessed-card (if (nil? guess) (if (< 0 (count non-soldiers)) (rand-nth non-soldiers) :princess) guess)
         card (pick-card-to-play state)]
-    (omni "Should the player play a soldier? %s" (should-play-soldier? state))
     (-> state
         (assoc-in [:players player-id :last-played] card)
         (discard-card player-id card)
-        ((partial reduce (fn [s v] (remove-deck-knowledge s v card))) (all-but-player state player-id))
-        ((partial reduce (fn [s v] (remove-player-knowledge s v player-id (list card)))) (all-but-player state player-id))
         (court-action card target-player guessed-card))))
 
 (defn remove-player [state player-id]
@@ -357,7 +359,6 @@
         p (players player-id)
         deck-knowledge (p :deck-knowledge)]
     ;; (omni "Removing %s from player %d's deck knowledge." card player-id)
-    ;; TODO we can also remove data from players' knowledge
     (-> state
         (assoc-in [:players player-id :deck-knowledge card] (dec (deck-knowledge card))))))
 
@@ -369,22 +370,25 @@
     (into {} (for [[k v] player-knowledge] [k (if (= 0 total) 0 (/ v total))]))))
 
 ;; Should the player play a soldier?
+;; TODO this is slightly broken since soldiers go into card-probabilities but are removed for this check
 (defn should-play-soldier? [state]
   ;; Get all the other players' probabilities, sort by highest probability, if >0.80, true
   (let [current-id (state :current-player)
         players (state :players)
-        current-player (players current-id)
-        all-player-knowledge (current-player :player-knowledge)
+        p (players current-id)
+        hand (p :hand)
+        all-player-knowledge (p :player-knowledge)
         all-probabilities (vec (map card-probabilities all-player-knowledge))]
-    (omni "Player probabilities...")
-    (not= nil (some (fn [p]
-                      ;; We can't target other soldiers.
-                      (let [probs (dissoc (nth all-probabilities p) :soldier)
-                            ;; Map of type => probability
-                            top-prob-map (into (sorted-map-by (fn [k1 k2] (>= (probs k1) (probs k2)))) probs)]
-                        (omni "-- Player %d: %s" p (vec (remove-first top-prob-map :soldier)))
-                        (< 0.8 (val (first (remove-first top-prob-map :soldier))))))
-                    (all-but-player state current-id)))))
+    (if (seq-contains? hand :soldier)
+      (not= nil (some (fn [p]
+                        ;; We can't target other soldiers.
+                        (let [probs (dissoc (nth all-probabilities p) :soldier)
+                              ;; Map of type => probability
+                              top-prob-map (into (sorted-map-by (fn [k1 k2] (>= (probs k1) (probs k2)))) probs)]
+                          (omni "-- Player %d: %s" p (vec (remove-first top-prob-map :soldier)))
+                          (< 0.8 (val (first (remove-first top-prob-map :soldier))))))
+                      (all-but-player state current-id)))
+      false)))
 
 ;; What should I guess if I play a soldier?
 (defn formulate-guess [state])
@@ -398,21 +402,22 @@
 ;; TODO: general: keep if 7+8 are out. exchange if >x soldiers exist & you have princess?
 ;; TODO: lower priority: play minister if there are lots of 5+ cards left in the deck
 (defn pick-card-to-play [state]
-  ;; ATTACK PRIORITY
-  ;; Play a soldier?
+  (cond
+    ;; ATTACK PRIORITY
+    ;; Play a soldier?
+    (should-play-soldier? state) :soldier
 
-  ;; Play a knight?
+    ;; Play a knight?
 
-  ;; Play a wizard?
+    ;; Play a wizard?
 
-  ;; UTILITY PRIORITY
-  ;; Play a general?
+    ;; UTILITY PRIORITY
+    ;; Play a general?
 
-  ;; Play a clown?
+    ;; Play a clown?
 
-  ;; RANDOM
-  (random-card state)
-  )
+    ;; RANDOM
+    :else (random-card state)))
 
 (defn knowledge? [state player-id target-id]
   "Does the player have knowledge on the target?"
@@ -441,12 +446,10 @@
         deck-knowledge (p :deck-knowledge)
         all-player-knowledge (p :player-knowledge)
         target-knowledge (all-player-knowledge target-id)]
-    (cond-> state
-      true (assoc-in [:players player-id :player-knowledge target-id]
-                     (into {} (for [[k v] target-knowledge]
-                                [k (if (seq-contains? cards k) v 0)])))
-      ;; TODO no idea what this does
-      (< 1 (count cards)) (remove-deck-knowledge player-id (first cards)))))
+
+    (assoc-in state [:players player-id :player-knowledge target-id]
+              (into {} (for [[k v] target-knowledge]
+                         [k (if (seq-contains? cards k) v 0)])))))
 
 (defn remove-player-knowledge [state player-id target-id cards]
   "Remove information about the player."
@@ -487,3 +490,5 @@
         burn-card
         ((partial reduce draw-card) (range num-players))
         (assoc :status :playing))))
+
+
