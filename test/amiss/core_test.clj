@@ -15,12 +15,11 @@
     (let [state (start-game 4 :original)]
       (is (= 4 (count (state :players))))
       (is (= 11 (count (state :deck))))
-      (is (= false (game-over? state)))
-      )))
+      (is (= false (game-over? state))))))
 
 (deftest test-random-play
   (testing "Draw and discard a random card in the hand."
-    (let [state (start-game 3 :original)
+    (let [state (start-game 4 :original)
           states (split-with (complement game-over?) (iterate play state))]
       (final-summary (first (second states))))))
 

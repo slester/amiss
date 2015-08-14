@@ -2,6 +2,8 @@
 
 ;; overarching TODO
 ;; -- we can remove player info by 1 (targeted by soldier) or completely (knight, etc) but this uses the same function
+;; -- when playing a card with != 0 probability, should reset from deck
+;; -- negative probabilities..??
 
 (defonce court
   {:princess  8
@@ -51,6 +53,11 @@
   (let [a (court card-a)
         b (court card-b)]
     ((comp {-1 false 0 nil 1 true} compare) a b)))
+
+(defn cards-higher-than [card]
+  "Get a list of all cards with a greater value than a certain card."
+  (let [card-value (court card)]
+    (filter #(< card-value (court %)) (keys court))))
 
 (defn all-but-player [state player-id]
   "Return all player IDs except the indicated player."
@@ -144,8 +151,9 @@
 (defn compare-hands [state target-id]
   "(Knight's Power) The player chooses a player, and they compare their hands. The lesser one is out of the round."
   (let [current-id (state :current-player)
-        current ((state :players) current-id)
-        target ((state :players) target-id)
+        players (state :players)
+        current (players current-id)
+        target (players target-id)
         current-hand (first (current :hand))
         target-hand (first (target :hand))
         comparison (compare-cards current-hand target-hand)]
@@ -160,11 +168,13 @@
           ;; We know the player had a higher card than the target, everyone gets that information.
           ;; TODO
           (= true comparison) (-> state
-                                  (remove-player target-id))
+                                  (remove-player target-id)
+                                  ((partial reduce (fn [s v] (add-player-knowledge s current-id v (cards-higher-than target-hand)))) (range (count players))))
           ;; We know the target had a higher card than the player; everyone gets this information.
           ;; TODO
           (= false comparison) (-> state
-                                   (remove-player current-id))
+                                   (remove-player current-id)
+                                   ((partial reduce (fn [s v] (add-player-knowledge s target-id v (cards-higher-than current-hand)))) (range (count players))))
           ;; If they tie, we know they're the same! TODO as this could get really difficult
           :else (-> state))))))
 
@@ -185,7 +195,8 @@
 ; 1 - Soldier - ACTION
 (defn guess-card [state target-id guess]
   "(Soldier's Power) If the target player has the guessed card, that player is out of the round."
-  (let [p ((state :players) target-id)
+  (let [players (state :players)
+        p (players target-id)
         current-id (state :current-player)
         hand (first (p :hand))]
     (if (= current-id target-id)
@@ -202,6 +213,7 @@
           ;; TODO
           (do (announce "Player %d is not a %s!" target-id guess)
               (-> state
+                  ((partial reduce (fn [s v] (remove-player-knowledge s v target-id (list guess)))) (all-but-player state target-id))
                   )))))))
 
 (defn court-action [state played-card target guess]
@@ -302,7 +314,9 @@
 
 (defn final-summary [state]
   "Calculates & congratulates the winners!"
-  (let [winners (mapcat (fn [i m] (if (true? (m :active)) [i])) (range) (state :players))]
+  (let [finalists (mapcat (fn [i m] (if (true? (m :active)) [i])) (range) (state :players))
+        ;; TODO get top player
+        winners finalists]
     (if (< 1 (count winners))
       (do
         ;; TODO break ties if Tempest
@@ -385,7 +399,7 @@
                         (let [probs (dissoc (nth all-probabilities p) :soldier)
                               ;; Map of type => probability
                               top-prob-map (into (sorted-map-by (fn [k1 k2] (>= (probs k1) (probs k2)))) probs)]
-                          (omni "-- Player %d: %s" p (vec (remove-first top-prob-map :soldier)))
+                          (omni "-- Player %d: %s" p (all-probabilities p))
                           (< 0.8 (val (first (remove-first top-prob-map :soldier))))))
                       (all-but-player state current-id)))
       false)))
@@ -435,6 +449,7 @@
 
 (defn check-player-knowledge [state player-id target-id]
   "Reset the player's knowledge if necessary."
+  ;; (omni "Does player %d have knowledge of %d? %s -- %s" player-id target-id (knowledge? state player-id target-id) (nth (((state :players) player-id) :player-knowledge) target-id))
   (if-not (knowledge? state player-id target-id)
     (reset-player-knowledge state player-id target-id)
     state))
@@ -446,7 +461,6 @@
         deck-knowledge (p :deck-knowledge)
         all-player-knowledge (p :player-knowledge)
         target-knowledge (all-player-knowledge target-id)]
-
     (assoc-in state [:players player-id :player-knowledge target-id]
               (into {} (for [[k v] target-knowledge]
                          [k (if (seq-contains? cards k) v 0)])))))
@@ -456,7 +470,8 @@
   (let [players (state :players)
         p (players player-id)
         target-knowledge ((p :player-knowledge) target-id)]
-    ;; If we're just removing 1 card, it's a played card. TODO is this true?
+    ;; TODO TODO TODO XXX
+    ;; If we're just removing 1 card, it's a played card. TODO is this true? -- NO, soldier?
     ;; If they play a card we thought we knew they had, we know nothing!
     ;; (omni "Removing %s from player %d's knowledge of player %d." cards player-id target-id)
     (cond-> state
@@ -465,12 +480,21 @@
                                     (into {} (for [[k v] target-knowledge]
                                                [k (if (seq-contains? cards k) 0 v)])))
       ;; true omni-state
-      true (check-player-knowledge player-id target-id)) ))
+      true (check-player-knowledge player-id target-id))))
 
 (defn swap-player-knowledge [state a-id b-id]
   "Swap the knowledge everyone has about a and b."
-  ;; TODO
-  state)
+  (let [players (state :players)]
+    (reduce (fn [s v]
+              (let [p (players v)
+                    knowledge (p :player-knowledge)
+                    a-knowledge (knowledge a-id)
+                    b-knowledge (knowledge b-id)]
+                (-> s
+                    (assoc-in [:players v :player-knowledge a-id] b-knowledge)
+                    (assoc-in [:players v :player-knowledge b-id] a-knowledge))))
+            state
+            (range (count players)))))
 
 (defn start-game [num-players rule-set]
   {:pre [(< 1 num-players 5)
