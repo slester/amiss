@@ -492,7 +492,7 @@
       ;; Soldier was played.
       (and (= 1 (count cards)) (not= target-id current-id) was-soldier?) (assoc-in [:players player-id :player-knowledge target-id (first cards)] 0)
       ;; The current player drew a card.
-      (and (= 1 (count cards)) (not= target-id current-id) (not was-soldier?)) (assoc-in [:players player-id :player-knowledge target-id (first cards)] (dec (target-knowledge (first cards))))
+      (and (= 1 (count cards)) (not= target-id current-id) (not was-soldier?)) (assoc-in [:players player-id :player-knowledge target-id (first cards)] (max 0 (dec (target-knowledge (first cards)))))
       ;; A range of cards, so a knight was played.
       (< 1 (count cards)) (assoc-in [:players player-id :player-knowledge target-id]
                                     (into {} (for [[k v] target-knowledge]
