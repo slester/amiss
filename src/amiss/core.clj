@@ -1,9 +1,10 @@
 (ns amiss.core)
 
 ;; overarching TODO
+;; -- player or current?
 ;; -- we can remove player info by 1 (targeted by soldier) or completely (knight, etc) but this uses the same function
 ;; -- when playing a card with != 0 probability, should reset from deck
-;; -- negative probabilities..??
+;; -- negative probabilities..?? if knowledge is 0, do nothing
 
 (defonce court
   {:princess  8
@@ -166,15 +167,13 @@
         (cond
           ;; a > b => true, a < b => false, tie = nil
           ;; We know the player had a higher card than the target, everyone gets that information.
-          ;; TODO
           (= true comparison) (-> state
                                   (remove-player target-id)
-                                  ((partial reduce (fn [s v] (add-player-knowledge s current-id v (cards-higher-than target-hand)))) (range (count players))))
+                                  ((partial reduce (fn [s v] (add-player-knowledge s current-id v (cards-higher-than target-hand)))) (all-but-player state current-id)))
           ;; We know the target had a higher card than the player; everyone gets this information.
-          ;; TODO
           (= false comparison) (-> state
                                    (remove-player current-id)
-                                   ((partial reduce (fn [s v] (add-player-knowledge s target-id v (cards-higher-than current-hand)))) (range (count players))))
+                                   ((partial reduce (fn [s v] (add-player-knowledge s target-id v (cards-higher-than current-hand)))) (all-but-player state target-id)))
           ;; If they tie, we know they're the same! TODO as this could get really difficult
           :else (-> state))))))
 
@@ -185,12 +184,15 @@
         players (state :players)
         target (players target-id)
         target-hand (target :hand)]
-    (announce "Player %d targets player %d and looks at his hand." current-id target-id)
     (if (= current-id target-id)
       ;; If the player has to choose herself, nothing happens.
-      state
+      (do
+        (announce "Player %d passes his turn." current-id)
+        state)
       ;; Otherwise, the current player gets extra information!
-      (add-player-knowledge state current-id target-id target-hand))))
+      (do
+        (announce "Player %d targets player %d and looks at his hand." current-id target-id)
+        (add-player-knowledge state current-id target-id target-hand)))))
 
 ; 1 - Soldier - ACTION
 (defn guess-card [state target-id guess]
@@ -210,11 +212,9 @@
           (-> state
               (remove-player target-id))
           ;; Otherwise, we learn that the person could be anyone in the deck MINUS the guess.
-          ;; TODO
           (do (announce "Player %d is not a %s!" target-id guess)
               (-> state
-                  ((partial reduce (fn [s v] (remove-player-knowledge s v target-id (list guess)))) (all-but-player state target-id))
-                  )))))))
+                  ((partial reduce (fn [s v] (remove-player-knowledge s v target-id (list guess)))) (all-but-player state target-id)))))))))
 
 (defn court-action [state played-card target guess]
   (condp = played-card
@@ -254,16 +254,17 @@
 (defn next-turn [state]
   "Moves to the next player's turn."
   (let [players (state :players)
-        current-player-id (state :current-player)
-        next-player-id (mod (inc current-player-id) (count players))
-        next-player (players next-player-id)]
-    (cond-> (assoc state :current-player next-player-id)
+        current-id (state :current-player)
+        next-id (mod (inc current-id) (count players))
+        next-player (players next-id)]
+    (cond-> (assoc state :current-player next-id)
       true (assoc :phase 0)
       (not (next-player :active)) next-turn)))
 
 (defn discard-card [state player-id card]
   "Discards a card."
-  (let [p ((state :players) player-id)
+  (let [players (state :players)
+        p (players player-id)
         hand (p :hand)
         discard (p :discard)]
     (announce "Player %d discards %s." player-id card)
@@ -271,7 +272,9 @@
         (assoc-in [:players player-id :hand] (remove-card hand card))
         (assoc-in [:players player-id :discard] (add-card discard card))
         ((partial reduce (fn [s v] (remove-deck-knowledge s v card))) (all-but-player state player-id))
-        ((partial reduce (fn [s v] (remove-player-knowledge s v player-id (list card)))) (all-but-player state player-id)))))
+        ;; Remove from everyone's knowledge of every player
+        ((partial reduce (fn [s v]
+                           (reduce (fn [t w] (remove-player-knowledge t v w (list card))) s (range (count players))))) (all-but-player state player-id)))))
 
 (defn discard-hand [state player-id]
   "Discards the entire hand."
@@ -468,14 +471,29 @@
 (defn remove-player-knowledge [state player-id target-id cards]
   "Remove information about the player."
   (let [players (state :players)
+        current-id (state :current-player)
+        current (players current-id)
+        was-soldier? (= (current :last-played) :soldier)
         p (players player-id)
-        target-knowledge ((p :player-knowledge) target-id)]
+        target-knowledge ((p :player-knowledge) target-id)
+        deck-knowledge (p :deck-knowledge)]
     ;; TODO TODO TODO XXX
+    ;; this whole function is messed up :(
     ;; If we're just removing 1 card, it's a played card. TODO is this true? -- NO, soldier?
     ;; If they play a card we thought we knew they had, we know nothing!
     ;; (omni "Removing %s from player %d's knowledge of player %d." cards player-id target-id)
+    ;; (omni "current-id=%d, player-id=%d, target-id=%d" current-id player-id target-id)
+    ;; (omni "current=target? %s" (= target-id current-id))
+    ;; (omni "# cards: %d" (count cards))
+    ;; (omni "target knowledge: %d" (target-knowledge (first cards)))
     (cond-> state
-      (= 1 (count cards)) (assoc-in [:players player-id :player-knowledge target-id (first cards)] (dec (target-knowledge (first cards))))
+      ;; The target player played a card. If the player thought that they could have had that card, reset knowledge. If it was 0, do nothing.
+      (and (= 1 (count cards)) (= target-id current-id) (< 0 (target-knowledge (first cards)))) (assoc-in [:players player-id :player-knowledge target-id] deck-knowledge)
+      ;; Soldier was played.
+      (and (= 1 (count cards)) (not= target-id current-id) was-soldier?) (assoc-in [:players player-id :player-knowledge target-id (first cards)] 0)
+      ;; The current player drew a card.
+      (and (= 1 (count cards)) (not= target-id current-id) (not was-soldier?)) (assoc-in [:players player-id :player-knowledge target-id (first cards)] (dec (target-knowledge (first cards))))
+      ;; A range of cards, so a knight was played.
       (< 1 (count cards)) (assoc-in [:players player-id :player-knowledge target-id]
                                     (into {} (for [[k v] target-knowledge]
                                                [k (if (seq-contains? cards k) 0 v)])))
@@ -514,5 +532,3 @@
         burn-card
         ((partial reduce draw-card) (range num-players))
         (assoc :status :playing))))
-
-

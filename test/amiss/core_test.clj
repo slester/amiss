@@ -23,6 +23,7 @@
           states (split-with (complement game-over?) (iterate play state))]
       (final-summary (first (second states))))))
 
+;; UTILITIES
 (deftest test-compare-cards
   (testing "Comparing equal cards."
     (is (= nil (compare-cards :wizard :wizard))))
