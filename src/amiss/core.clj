@@ -5,6 +5,7 @@
 ;; -- we can remove player info by 1 (targeted by soldier) or completely (knight, etc) but this uses the same function
 ;; -- when playing a card with != 0 probability, should reset from deck
 ;; -- negative probabilities..?? if knowledge is 0, do nothing
+;; -- stop when first isn't nil
 
 (defonce court
   {:princess  8
@@ -284,13 +285,14 @@
     (reduce (fn [s card] (discard-card s player-id card)) state hand)))
 
 (defn random-card [state]
-  "Pick a random card from your hand to play, except the Princess."
+  "Pick a random card from your hand to play (except the princess)."
   (let [current-player ((state :players) (state :current-player))
         hand (current-player :hand)]
     (if (some #(= :princess %) hand)
       (first (filter #(not= :princess %) hand))
       (rand-nth hand))))
 
+;; TODO pick target, pick guess
 (defn play-card [state & {:keys [played-card target-id guess]}]
   "Current player plays the provided card, or a random one if none provided."
   (let [player-id (state :current-player)
@@ -313,6 +315,7 @@
   (announce "Player %d is out of the round." player-id)
   (-> state
       (discard-hand player-id)
+      ((partial reduce (fn [s v] (assoc-in s [:players v :player-knowledge player-id] {}))) (all-but-player state player-id))
       (assoc-in [:players player-id :active] false)))
 
 (defn final-summary [state]
@@ -387,7 +390,6 @@
     (into {} (for [[k v] player-knowledge] [k (if (= 0 total) 0 (/ v total))]))))
 
 ;; Should the player play a soldier?
-;; TODO this is slightly broken since soldiers go into card-probabilities but are removed for this check
 (defn should-play-soldier? [state]
   ;; Get all the other players' probabilities, sort by highest probability, if >0.80, true
   (let [current-id (state :current-player)
@@ -402,36 +404,105 @@
                         (let [probs (dissoc (nth all-probabilities p) :soldier)
                               ;; Map of type => probability
                               top-prob-map (into (sorted-map-by (fn [k1 k2] (>= (probs k1) (probs k2)))) probs)]
-                          (omni "-- Player %d: %s" p (all-probabilities p))
-                          (< 0.8 (val (first (remove-first top-prob-map :soldier))))))
+                          (omni "-- Player %d: %s" p top-prob-map)
+                          (< 0.5 (val (first top-prob-map)))))
                       (all-but-player state current-id)))
       false)))
 
+(defn should-play-clown? [state]
+  (let [current-id (state :current-player)
+        players (state :players)
+        p (players current-id)
+        hand (p :hand)]
+    (seq-contains? hand :clown)))
+
+(defn should-play-knight? [state]
+  (let [current-id (state :current-player)
+        players (state :players)
+        p (players current-id)
+        hand (p :hand)]
+    (seq-contains? hand :knight)))
+
+(defn should-play-priestess? [state]
+  (let [current-id (state :current-player)
+        players (state :players)
+        p (players current-id)
+        hand (p :hand)]
+    (seq-contains? hand :priestess)))
+
+(defn should-play-wizard? [state]
+  (let [current-id (state :current-player)
+        players (state :players)
+        p (players current-id)
+        hand (p :hand)]
+    (seq-contains? hand :wizard)))
+
+(defn should-play-general? [state]
+  (let [current-id (state :current-player)
+        players (state :players)
+        p (players current-id)
+        hand (p :hand)]
+    (seq-contains? hand :general)))
+
+(defn should-play-minister? [state]
+  (let [current-id (state :current-player)
+        players (state :players)
+        p (players current-id)
+        hand (p :hand)]
+    (seq-contains? hand :minister)))
+
 ;; What should I guess if I play a soldier?
-(defn formulate-guess [state])
+(defn formulate-guess [state]
+  "Pick a card to guess."
+   (let [current-id (state :current-player)
+        players (state :players)
+        p (players current-id)
+        hand (p :hand)
+        all-player-knowledge (p :player-knowledge)
+        all-probabilities (vec (map card-probabilities all-player-knowledge))]
+     ;; pick the highest
+
+     ))
 
 ;; Using the information we have, which card should I play?
-;; TODO: NEVER PRIESTESS. SERIOUSLY YOU GUYS.
-;; TODO: soldier if you have a soldier and know with 100%? less? probability of a player's card
 ;; TODO: wizard if you know someone has the princess if you can; wizard yourself if you have a low card late in the game?
 ;; TODO: knight if you know you have a higher card than someone else (x% probability?)
 ;; TODO: priestess if there are lots of soldiers, knights are out there and your other card is low
 ;; TODO: general: keep if 7+8 are out. exchange if >x soldiers exist & you have princess?
 ;; TODO: lower priority: play minister if there are lots of 5+ cards left in the deck
 (defn pick-card-to-play [state]
+  ;; (reduce (fn [_ f] (let [x (f state)] (if (nil? x) nil (reduced x)))) nil
+  ;;         [
+  ;;          ;; ATTACK PRIORITY
+  ;;          play-soldier?
+  ;;          play-knight?
+  ;;          play-wizard?
+  ;;
+  ;;          ]
+  ;;         )
   (cond
     ;; ATTACK PRIORITY
     ;; Play a soldier?
     (should-play-soldier? state) :soldier
 
     ;; Play a knight?
+    (should-play-knight? state) :knight
 
     ;; Play a wizard?
+    (should-play-wizard? state) :wizard
 
     ;; UTILITY PRIORITY
+    ;; Play a priestess?
+    (should-play-priestess? state) :priestess
+
     ;; Play a general?
+    (should-play-general? state) :general
 
     ;; Play a clown?
+    (should-play-clown? state) :clown
+
+    ;; Play a minister?
+    (should-play-minister? state) :minister
 
     ;; RANDOM
     :else (random-card state)))
@@ -477,15 +548,7 @@
         p (players player-id)
         target-knowledge ((p :player-knowledge) target-id)
         deck-knowledge (p :deck-knowledge)]
-    ;; TODO TODO TODO XXX
-    ;; this whole function is messed up :(
-    ;; If we're just removing 1 card, it's a played card. TODO is this true? -- NO, soldier?
-    ;; If they play a card we thought we knew they had, we know nothing!
     ;; (omni "Removing %s from player %d's knowledge of player %d." cards player-id target-id)
-    ;; (omni "current-id=%d, player-id=%d, target-id=%d" current-id player-id target-id)
-    ;; (omni "current=target? %s" (= target-id current-id))
-    ;; (omni "# cards: %d" (count cards))
-    ;; (omni "target knowledge: %d" (target-knowledge (first cards)))
     (cond-> state
       ;; The target player played a card. If the player thought that they could have had that card, reset knowledge. If it was 0, do nothing.
       (and (= 1 (count cards)) (= target-id current-id) (< 0 (target-knowledge (first cards)))) (assoc-in [:players player-id :player-knowledge target-id] deck-knowledge)
