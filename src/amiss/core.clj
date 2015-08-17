@@ -396,7 +396,7 @@
 
 ;; Should the player play a soldier?
 (defn play-soldier? [state]
-  ;; Get all the other players' probabilities, sort by highest probability, if >0.80, true
+  ;; Get all the other players' probabilities, sort by highest probability, if >0.50
   (let [current-id (state :current-player)
         players (state :players)
         p (players current-id)
@@ -405,15 +405,12 @@
         all-probabilities (vec (map card-probabilities all-player-knowledge))]
     (omni "Should player %d play a soldier?" current-id)
     (if (seq-contains? hand :soldier)
-      (reduce (fn [_ target] (let [probs (dissoc (nth all-probabilities target) :soldier)
-                                   top-prob-map (into (sorted-map-by (fn [k1 k2] (>= (probs k1) (probs k2)))) probs)]
-                               (omni "in reduce - %s" (list :soldier target (key (first top-prob-map))))
-                               (if (< 0.5 (val (first top-prob-map)))
-                                 (reduced (list :soldier target (key (first top-prob-map))))
-                                 false)))
-              false
-              (all-but-player state current-id))
-      false)))
+      (first (filter (fn [target] (let [probs (dissoc (nth all-probabilities target) :soldier)
+                                        top-prob-map (into (sorted-map-by (fn [k1 k2] (>= (probs k1) (probs k2)))) probs)]
+                                    (omni "in reduce - %s" (list :soldier target (key (first top-prob-map))))
+                                    (if (< 0.5 (val (first top-prob-map)))
+                                      (list :soldier target (key (first top-prob-map))))))
+                     (all-but-player state current-id))))))
 
 (defn play-clown? [state]
   (let [current-id (state :current-player)
@@ -423,7 +420,6 @@
     (if (seq-contains? hand :clown)
       ;; TODO: Choose the person we know the least about.
       (list :clown (first (all-but-player state current-id)) nil)
-      false
       )))
 
 (defn play-knight? [state]
@@ -434,7 +430,6 @@
     (if (seq-contains? hand :knight)
       ;; TODO: Choose the person we are surest about having a higher card than.
       (list :knight (first (all-but-player state current-id)) nil)
-      false
       )))
 
 (defn play-priestess? [state]
@@ -444,7 +439,6 @@
         hand (p :hand)]
     (if (seq-contains? hand :priestess)
      (list :priestess nil nil)
-     false
       )))
 
 (defn play-wizard? [state]
@@ -454,7 +448,6 @@
         hand (p :hand)]
     (if (seq-contains? hand :wizard)
       (list :wizard (first (all-but-player state current-id)) nil)
-      false
       )))
 
 (defn play-general? [state]
@@ -464,7 +457,6 @@
         hand (p :hand)]
     (if (seq-contains? hand :general)
      (list :general (first (all-but-player state current-id)) nil)
-      false
       )))
 
 (defn play-minister? [state]
@@ -474,7 +466,6 @@
         hand (p :hand)]
     (if (seq-contains? hand :minister)
       (list :minister nil nil)
-      false
       )))
 
 
@@ -486,7 +477,7 @@
 ;; TODO: lower priority: play minister if there are lots of 5+ cards left in the deck
 ;; returns (card to play, target, guess)
 (defn pick-card-to-play [state]
-  (reduce (fn [_ f] (let [x (f state)] (if (false? x) false (reduced x)))) false
+  (reduce (fn [_ f] (let [x (f state)] (if (nil? x) nil (reduced x)))) nil
           [;; Attack priority
            play-soldier?
            play-knight?
