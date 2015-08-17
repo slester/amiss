@@ -69,14 +69,15 @@
   (defn all-but-player [state player-id]
     "Return all player IDs except the indicated player."
     (let [players (state :players)]
-      (omni "deleting %d from %s => %s" player-id (vec (get-active state)) (vec (remove #{player-id} (vec (get-active state)))))
       (remove #{player-id} (vec (get-active state)))))
 
   (defn game-over? [state]
     "Check the board for winning state, i.e. only one person left active or the deck is empty."
-    (let [players (state :players)]
+    (let [players (state :players)
+          current-id (state :current-player)
+          current (players current-id)]
       (or (= 1 (count (get-active state)))
-          (= 0 (count (state :deck))))))
+          (and (= 0 (count (state :deck))) (= 1 (count (current :hand)))))))
 
   ;; GAME PLAY DECLARATIONS ;;
   ;; These are used in card powers.
@@ -286,11 +287,16 @@
 
   (defn random-card [state]
     "Pick a random card from your hand to play (except the princess)."
-    (let [current-player ((state :players) (state :current-player))
-          hand (current-player :hand)]
+    (let [players (state :players)
+          current-id (state :current-player)
+          current-player (players current-id)
+          hand (current-player :hand)
+          target-id (rand-nth (all-but-player state current-id))
+          target-knowledge ((current-player :player-knowledge) target-id)
+          guess (rand-nth (keys (filter #(< 0 (second %)) target-knowledge)))]
       (if (some #(= :princess %) hand)
-        (first (filter #(not= :princess %) hand))
-        (rand-nth hand))))
+        (list (first (filter #(not= :princess %) hand)) target-id guess)
+        (list (rand-nth hand) target-id guess))))
 
   ;; TODO pick target, pick guess
   (defn play-card [state & {:keys [played-card target-id guess]}]
@@ -298,18 +304,10 @@
     (let [player-id (state :current-player)
           players (state :players)
           p (players player-id)
-          ;; valid-player-ids (mapcat (fn [i m] (if (and (not= (m :last-played) :priestess) (m :active)) [i])) (range) players)
-          ;; other-player-ids (remove-first valid-player-ids player-id)
-          ;; random-player-id (if (< 0 (count other-player-ids)) (rand-nth other-player-ids) player-id)
-          ;; target-player (if (nil? target-id) random-player-id target-id)
-          ;; non-soldiers (filter #(not= :soldier %) (state :deck))
-          ;; guessed-card (if (nil? guess) (if (< 0 (count non-soldiers)) (rand-nth non-soldiers) :princess) guess)
           play-tuple (pick-card-to-play state)
-          _ (println "->" play-tuple)
           card (nth play-tuple 0)
           target-id (nth play-tuple 1)
-          guess (nth play-tuple 2)
-          ]
+          guess (nth play-tuple 2)]
     (-> state
         (assoc-in [:players player-id :last-played] card)
         (discard-card player-id card)
@@ -325,9 +323,13 @@
 
 (defn final-summary [state]
   "Calculates & congratulates the winners!"
-  (let [finalists (mapcat (fn [i m] (if (true? (m :active)) [i])) (range) (state :players))
-        ;; TODO get top player
-        winners finalists]
+  (let [players (state :players)
+        finalists (mapcat (fn [i m] (if (m :active) [i])) (range) players)
+        finalists-hands (map #(court (first ((players %) :hand))) finalists)
+        highest-value (first (reverse (sort finalists-hands)))
+        _ (println finalists-hands highest-value)
+        finalists-combined (zipmap finalists finalists-hands)
+        winners (keys (filter #(= highest-value (second %)) finalists-combined))]
     (if (< 1 (count winners))
       (do
         ;; TODO break ties if Tempest
@@ -403,14 +405,13 @@
         hand (p :hand)
         all-player-knowledge (p :player-knowledge)
         all-probabilities (vec (map card-probabilities all-player-knowledge))]
-    (omni "Should player %d play a soldier?" current-id)
     (if (seq-contains? hand :soldier)
-      (first (filter (fn [target] (let [probs (dissoc (nth all-probabilities target) :soldier)
-                                        top-prob-map (into (sorted-map-by (fn [k1 k2] (>= (probs k1) (probs k2)))) probs)]
-                                    (omni "in reduce - %s" (list :soldier target (key (first top-prob-map))))
-                                    (if (< 0.5 (val (first top-prob-map)))
-                                      (list :soldier target (key (first top-prob-map))))))
-                     (all-but-player state current-id))))))
+      (first (filter some? (map (fn [target] (let [probs (dissoc (nth all-probabilities target) :soldier)
+                                                   top-prob-map (into (sorted-map-by (fn [k1 k2] (>= (probs k1) (probs k2)))) probs)]
+                                               (omni "in reduce - %s" (list :soldier target (key (first top-prob-map))))
+                                               (if (< 0.5 (val (first top-prob-map)))
+                                                 (list :soldier target (key (first top-prob-map))))))
+                                (all-but-player state current-id)))))))
 
 (defn play-clown? [state]
   (let [current-id (state :current-player)
@@ -532,8 +533,8 @@
         p (players player-id)
         target-knowledge ((p :player-knowledge) target-id)
         deck-knowledge (p :deck-knowledge)]
-    (omni "Removing %s from player %d's knowledge of player %d." cards player-id target-id)
-    (omni "Target knowledge: %s" (target-knowledge (first cards)))
+    ;; (omni "Removing %s from player %d's knowledge of player %d." cards player-id target-id)
+    ;; (omni "Target knowledge: %s" (target-knowledge (first cards)))
     (cond-> state
       ;; The target player played a card. If the player thought that they could have had that card, reset knowledge. If it was 0, do nothing.
       (and (= 1 (count cards)) (= target-id current-id) (< 0 (target-knowledge (first cards)))) (assoc-in [:players player-id :player-knowledge target-id] deck-knowledge)
