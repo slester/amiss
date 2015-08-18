@@ -272,7 +272,7 @@
         ((partial reduce (fn [s v] (remove-deck-knowledge s v card))) (all-but-player state player-id))
         ;; Remove from everyone's knowledge of every player
         ((partial reduce (fn [s v]
-                           (reduce (fn [t w] (remove-player-knowledge t v w (list card))) s (all-but-player state player-id)))) (all-but-player state player-id)))))
+                           (reduce (fn [t w] (if (not= v w) (remove-player-knowledge t v w (list card)) t)) s (get-active s)))) (all-but-player state player-id)))))
 
 (defn discard-hand [state player-id]
   "Discards the entire hand."
@@ -403,7 +403,6 @@
     (if (seq-contains? hand :soldier)
       (first (filter some? (map (fn [target] (let [probs (dissoc (nth all-probabilities target) :soldier)
                                                    top-prob-map (into (sorted-map-by (fn [k1 k2] (>= (probs k1) (probs k2)))) probs)]
-                                               (omni "in reduce - %s" (list :soldier target (key (first top-prob-map))))
                                                (if (< 0.5 (val (first top-prob-map)))
                                                  (list :soldier target (key (first top-prob-map))))))
                                 (all-but-player state current-id)))))))
@@ -423,7 +422,7 @@
         players (state :players)
         p (players current-id)
         hand (p :hand)]
-    (if (seq-contains? hand :knight)
+    (if (and (seq-contains? hand :knight))
       ;; TODO: Choose the person we are surest about having a higher card than (sort by sum of probabilities < other card in our hand)
       (list :knight (first (all-but-player state current-id)) nil)
       )))
@@ -448,7 +447,7 @@
         players (state :players)
         p (players current-id)
         hand (p :hand)]
-    (if (seq-contains? hand :wizard)
+    (if (and (seq-contains? hand :wizard))
       (list :wizard (first (all-but-player state current-id)) nil)
       )))
 
@@ -459,17 +458,22 @@
         players (state :players)
         p (players current-id)
         hand (p :hand)]
-    (if (seq-contains? hand :general)
+    (if (and (seq-contains? hand :general))
       (list :general (first (all-but-player state current-id)) nil)
       )))
 
 ;; TODO: play minister if there are lots of 5+ cards left in the deck
+;; don't play near the end of the game (> # player cards left)
 (defn play-minister? [state]
   (let [current-id (state :current-player)
         players (state :players)
         p (players current-id)
+        deck-knowledge (p :deck-knowledge)
         hand (p :hand)]
-    (if (and (seq-contains? hand :minister))
+    (if (and (seq-contains? hand :minister)
+             (< (count players) (count deck-knowledge))
+             (< 3 (reduce + 0 (vals (filter #(< 4 (court (first %))) deck-knowledge))))
+             )
       (list :minister nil nil)
       )))
 
