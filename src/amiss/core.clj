@@ -207,8 +207,9 @@
         (announce "Player %d guesses that player %d is %s." current-id target-id guess)
         (if (= guess hand)
           ;; Everyone learns something about the deck when the player discards in remove-player.
-          (-> state
-              (remove-player target-id))
+          (do (announce "Player %d was correct!" current-id)
+              (-> state
+                  (remove-player target-id)))
           ;; Otherwise, we learn that the person could be anyone in the deck MINUS the guess.
           (do (announce "Player %d is not a %s!" target-id guess)
               (-> state
@@ -322,12 +323,18 @@
         finalists (mapcat (fn [i m] (if (m :active) [i])) (range) players)
         finalists-hands (map #(court (first ((players %) :hand))) finalists)
         highest-value (first (reverse (sort finalists-hands)))
-        _ (println finalists-hands highest-value)
         finalists-combined (zipmap finalists finalists-hands)
-        winners (keys (filter #(= highest-value (second %)) finalists-combined))]
+        winners-prelim (keys (filter #(= highest-value (second %)) finalists-combined))
+        _ (println winners-prelim)
+        ;; Tie breaking
+        winners-discard-sum (map #(reduce + 0 (map court ((players %) :discard))) winners-prelim)
+        _ (println winners-discard-sum)
+        highest-discard-sum (first (reverse (sort winners-discard-sum)))
+        winners-combined (zipmap winners-prelim winners-discard-sum)
+        ;; TODO winners = winners-prelim if original, otherwise what we have here
+        winners (keys (filter #(= highest-discard-sum (second %)) winners-combined))]
     (if (< 1 (count winners))
       (do
-        ;; TODO break ties if Tempest
         (announce "The following players have tied: %s" (clojure.string/join ", " winners))
         state)
       (do
@@ -403,7 +410,6 @@
     (if (seq-contains? hand :soldier)
       (first (filter some? (map (fn [target] (let [probs (dissoc (nth all-probabilities target) :soldier)
                                                    top-prob-map (into (sorted-map-by (fn [k1 k2] (>= (probs k1) (probs k2)))) probs)]
-                                               (omni "in reduce - %s" (list :soldier target (key (first top-prob-map))))
                                                (if (< 0.5 (val (first top-prob-map)))
                                                  (list :soldier target (key (first top-prob-map))))))
                                 (all-but-player state current-id)))))))
