@@ -43,10 +43,15 @@
   ([] (make-players 4))
   ([n]
    (when-not (< 1 n 5) (throw (Exception. "Only 2-4 players are allowed.")))
-   (map #(->Player true % '() '() nil (make-deck-knowledge) (make-player-knowledge n %)) (range n))))
+   (mapv #(->Player true % '() '() nil (make-deck-knowledge) (make-player-knowledge n %)) (range n))))
 
 (defn make-state [total-players]
-  {:current-player 0
-   :players (make-players total-players)
-   :game-over false}
-  )
+  (let [full-deck (shuffle court-deck)
+        burned-card (first full-deck)
+        deck (rest full-deck)]
+    {:current-player 0
+     :players (make-players total-players)
+     :status :in-progress
+     :deck deck
+     :burned-card burned-card
+     }))

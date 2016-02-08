@@ -19,22 +19,24 @@
       (let [[v c] (alts! [timer command-chan] :priority true)]
        (condp = c
          command-chan (when v (recur state (conj commands v) timer))
-         timer
-         (let [new-state (gameplay/advance state (first commands))]
-           ;; broadcast the new state
-           (>! state-chan new-state)
-           (recur new-state (rest commands) (timeout config/fpms))
-           ))))))
+         timer (let [new-state (gameplay/advance state commands)]
+                 ;; broadcast the new state
+                 ;; (>! state-chan new-state)
+                 (recur new-state [] (timeout config/fpms))))))))
 
 (defn new-game! []
   {:command-chan (chan)
    :state-chan (chan)})
 
-;; XXX testing mode
 (defn main []
   (println "in main")
   (let [{:keys [command-chan state-chan]} (new-game!)]
     (game command-chan state-chan)
-    (go (>! command-chan "example"))
+    (go
+      (>! command-chan {:type :draw-card :player 0})
+      (>! command-chan {:type :draw-card :player 1})
+      (>! command-chan {:type :draw-card :player 2})
+      (>! command-chan {:type :draw-card :player 3})
+        )
     (while true)
     ))
