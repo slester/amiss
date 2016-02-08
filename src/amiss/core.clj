@@ -28,7 +28,7 @@
   {:command-chan (chan)
    :state-chan (chan)})
 
-(defn main []
+(defn -main []
   (println "in main")
   (let [{:keys [command-chan state-chan]} (new-game!)]
     (game command-chan state-chan)
