@@ -12,8 +12,9 @@
 ;; players put commands onto the command chan
 ;; and read from the state-chan to update their internal state
 (defn game [command-chan state-chan]
+  (let [initial-state (gameplay/start-game (data/make-state total-players))]
   (go
-    (loop [state (data/make-state total-players)
+    (loop [state initial-state
            commands []
            timer (timeout config/fpms)]
       (let [[v c] (alts! [timer command-chan] :priority true)]
@@ -22,7 +23,7 @@
          timer (let [new-state (gameplay/advance state commands)]
                  ;; broadcast the new state
                  ;; (>! state-chan new-state)
-                 (recur new-state [] (timeout config/fpms))))))))
+                 (recur new-state [] (timeout config/fpms)))))))))
 
 (defn new-game! []
   {:command-chan (chan)
@@ -32,11 +33,7 @@
   (println "in main")
   (let [{:keys [command-chan state-chan]} (new-game!)]
     (game command-chan state-chan)
-    (go
-      (>! command-chan {:type :draw-card :player 0})
-      (>! command-chan {:type :draw-card :player 1})
-      (>! command-chan {:type :draw-card :player 2})
-      (>! command-chan {:type :draw-card :player 3})
-        )
+    ;; (go
+    ;;     )
     (while true)
     ))
