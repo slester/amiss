@@ -4,7 +4,6 @@
 ;;---------------------------
 ;; game actions
 ;;---------------------------
-
 (defmulti execute
   (fn [state command] (:type command)))
 
@@ -59,28 +58,48 @@
         ;; TODO: knowledge updates
         )))
 
+;; remove a player from the game ;;
+(defmethod execute :remove-player [state command]
+  (let [player (:player command)]
+  (-> state
+      (assoc-in [:players player :active] false))))
+
 (defn do-commands [state commands]
   (reduce (fn [current-state command] (execute current-state command)) state commands))
+
+;;---------------------------
+;; game status checks
+;;---------------------------
+
+(defn available-targets [state]
+  "Find available targets for a targeted action."
+  (map :position (filter #(and (:active %) (not= (:last-played %) :priestess)) (:players state))))
+
+(defn check-princess [state]
+  "Check if a player should be out for discarding the princess."
+  (if-let [player (:position (filter #(u/seq-contains? (:discard %) :princess) (:players state)))]
+    (execute state {:type :remove-player :player player})
+    state))
 
 ;;---------------------------
 ;; game progression
 ;;---------------------------
 
-;; start game ;;
 (defn start-game [state]
+  "Perform start of game actions."
   ;; all players draw a card
   (reduce #(execute % {:type :draw :player %2}) state (range (count (:players state)))))
 
-;; has the game ended? ;;
 (defn check-game-ending [state]
+  "Check if the game has ended."
   (if (or
         (= 1 (count (filter :active (:players state))))
         (= 0 (count (:deck state))))
     (assoc-in state [:status] :game-over)
     state))
 
-;; advance the turn to the next available player ;;
 (defn advance-turn [state]
+  "Advance the turn to the next available player."
   (let [current (:current-player state)
         players (:players state)
         active (:position (filter :active players))
@@ -89,8 +108,8 @@
     (assoc state :current-player next-player)
     state)))
 
-;; step through a turn ;;
 (defn advance [state commands]
+  "Step through a turn."
   (-> state
       (do-commands commands)
       (check-game-ending)
