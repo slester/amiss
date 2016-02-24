@@ -20,7 +20,7 @@
       (let [[v c] (alts! [timer command-chan] :priority true)]
        (condp = c
          command-chan (when v (recur state (conj commands v) timer))
-         timer (let [new-state (gameplay/advance state commands)]
+         timer (let [new-state (gameplay/do-commands state commands)]
                  ;; broadcast the new state
                  ;; (>! state-chan new-state)
                  (recur new-state [] (timeout config/fpms)))))))))

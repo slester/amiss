@@ -1,22 +1,41 @@
 (ns amiss.gameplay
-  (:require [amiss.util :as u]))
+  (:require [amiss.util :as u]
+            [amiss.data :as data]))
+
+(declare check-princess)
 
 ;;---------------------------
 ;; game actions
 ;;---------------------------
+
 (defmulti execute
   (fn [state command] (:type command)))
 
 (defmethod execute :draw [state command]
   (let [player (:player command)
+        active? (get-in state [:players player :active])
         deck (:deck state)
         card (first deck)
         new-deck (rest deck)]
     (println "Player" player "draws" card)
+    (if active?
+      (-> state
+          ;; TODO: knowledge updates
+          (update-in [:players player :hand] conj card)
+          (assoc :deck new-deck))
+      state)))
+
+;; play a card ;;
+(defmethod execute :play [state command]
+  (let [player (:current-player state)
+        card (:card command)]
     (-> state
         ;; TODO: knowledge updates
-        (update-in [:players player :hand] conj card)
-        (assoc :deck new-deck))))
+        (update-in [:players player :hand] u/remove-first card)
+        (assoc-in [:players player :last-played] card)
+        (update-in [:players player :discard] conj card)
+        (check-princess)
+        )))
 
 ;; discard a card ;;
 (defmethod execute :discard [state command]
@@ -24,9 +43,10 @@
         card (:card command)]
     (-> state
         ;; TODO: knowledge updates
-        ;; TODO: if card is princess?
         (update-in [:players player :hand] u/remove-first card)
-        (update-in [:players player :discard] conj card))))
+        (update-in [:players player :discard] conj card)
+        (check-princess)
+        )))
 
 ;; discard an entire hand ;;
 (defmethod execute :discard-hand [state command]
@@ -34,9 +54,10 @@
         hand (get-in state [:players player :hand])]
     (-> state
         ;; TODO: knowledge updates
-        ;; TODO: if hand has princess?
         (assoc-in [:players player :hand] '())
-        (update-in [:players player :discard] into hand))))
+        (update-in [:players player :discard] into hand)
+        (check-princess)
+        )))
 
 ;; swap hands ;;
 (defmethod execute :swap-hands [state command]
@@ -58,22 +79,89 @@
         ;; TODO: knowledge updates
         )))
 
+;; compare hands ;;
+(defmethod execute :compare-hands [state command]
+  (let [a (:player-a command)
+        b (:player-b command)
+        a-val ((first (get-in state [:players a :hand])) data/court-values)
+        b-val ((first (get-in state [:players b :hand])) data/court-values)]
+    (cond
+      (< a-val b-val) (execute state {:type :remove-player :player a})
+      (> a-val b-val) (execute state {:type :remove-player :player b})
+      :else state ;; TODO does this do anything else?
+      )
+    ))
+
+(defmethod execute :guess [state command]
+  ;; TODO
+  state
+  )
+
 ;; remove a player from the game ;;
 (defmethod execute :remove-player [state command]
   (let [player (:player command)]
   (-> state
       (assoc-in [:players player :active] false))))
 
+(defmethod execute :end-turn [state command]
+  "End the current player's turn and advance to the next available player."
+  (let [current (:current-player state)
+        players (:players state)
+        active (:position (filter :active players))
+        next-player (second (drop-while (complement #{current}) (cycle active)))
+        game-over (u/game-over? state)]
+  (if game-over
+    (assoc state :status :game-over)
+    (assoc state :current-player next-player))))
+
 (defn do-commands [state commands]
   (reduce (fn [current-state command] (execute current-state command)) state commands))
 
 ;;---------------------------
-;; game status checks
+;; card actions
 ;;---------------------------
 
-(defn available-targets [state]
-  "Find available targets for a targeted action."
-  (map :position (filter #(and (:active %) (not= (:last-played %) :priestess)) (:players state))))
+(defmulti card-action
+  (fn [state command] (:card command)))
+
+(defmethod card-action :soldier [state command]
+  (-> state
+      (execute {:type :play :card :soldier}))
+      (execute {:type :guess :player-a (:player-a command) :player-b (:player-b command) :guessed-card (:guessed-card command)}))
+
+(defmethod card-action :clown [state command]
+  (-> state
+      (execute {:type :play :card :clown})
+      (execute {:type :show-hand :player-a (:player-a command) :player-b (:player-b command)})))
+
+(defmethod card-action :knight [state command]
+  (-> state
+      (execute {:type :play :card :knight})
+      (execute {:type :compare-hand :player-a (:player-a command) :player-b (:player-b command)})))
+
+(defmethod card-action :priestess [state command]
+  (execute state {:type :play :card :priestess}))
+
+(defmethod card-action :wizard [state command]
+  (-> state
+      (execute {:type :play :card :wizard})
+      (execute {:type :discard-hand :player (:player command)})
+      (execute {:type :draw :player (:player command)})))
+
+(defmethod card-action :general [state command]
+  (-> state
+      (execute {:type :play :card :minister})
+      (execute {:type :swap-hands :player-a (:player-a command) :player-b (:player-b command)})))
+
+(defmethod card-action :minister [state command]
+  (execute state {:type :play :card :general}))
+
+(defmethod card-action :princess [state command]
+  (execute state {:type :play :card :princess}))
+
+;;---------------------------
+;; game status checks
+;;---------------------------
 
 (defn check-princess [state]
   "Check if a player should be out for discarding the princess."
@@ -89,28 +177,3 @@
   "Perform start of game actions."
   ;; all players draw a card
   (reduce #(execute % {:type :draw :player %2}) state (range (count (:players state)))))
-
-(defn check-game-ending [state]
-  "Check if the game has ended."
-  (if (or
-        (= 1 (count (filter :active (:players state))))
-        (= 0 (count (:deck state))))
-    (assoc-in state [:status] :game-over)
-    state))
-
-(defn advance-turn [state]
-  "Advance the turn to the next available player."
-  (let [current (:current-player state)
-        players (:players state)
-        active (:position (filter :active players))
-        next-player (second (drop-while (complement #{current}) (cycle active)))]
-  (if (not= :game-over (:status state))
-    (assoc state :current-player next-player)
-    state)))
-
-(defn advance [state commands]
-  "Step through a turn."
-  (-> state
-      (do-commands commands)
-      (check-game-ending)
-      (advance-turn)))
