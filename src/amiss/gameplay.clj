@@ -1,9 +1,11 @@
 (ns amiss.gameplay
   (:require [amiss.util :as u]
-            [amiss.data :as data]))
+            [amiss.config :as cfg]
+            [amiss.data :as d]))
 
 (declare card-action)
 (declare check-princess)
+(declare check-minister)
 
 ;;---------------------------
 ;; game actions
@@ -16,41 +18,46 @@
   (let [player (:player command)
         active? (get-in state [:players player :active])
         deck (:deck state)
-        card (first deck)
+        card (or (first deck) (:burned-card state))
         new-deck (rest deck)]
-    (println "Player" player "draws" card)
+    (println "Player" player "draws" (card (d/card-names cfg/ruleset)))
     (if active?
       (-> state
           ;; TODO: knowledge updates
           (update-in [:players player :hand] conj card)
-          (assoc :deck new-deck))
+          (assoc :deck new-deck)
+          (check-minister))
       state)))
 
 ;; play a card ;;
 (defmethod execute :play [state command]
   (let [current (:current-player state)
         card (:card command)]
-    (println "Player" current "plays" card)
-    (-> state
-        ;; TODO: knowledge updates
-        (update-in [:players current :hand] u/remove-first card)
-        (assoc-in [:players current :last-played] card)
-        (update-in [:players current :discard] conj card)
-        (check-princess)
-        )))
+    (println "Player" current "plays" (card (d/card-names cfg/ruleset)))
+    (if (u/is-active state current)
+      (-> state
+          ;; TODO: knowledge updates
+          (update-in [:players current :hand] u/remove-first card)
+          (assoc-in [:players current :last-played] card)
+          (update-in [:players current :discard] conj card)
+          (check-princess)
+          )
+      state)))
 
 ;; play a random card ;;
 (defmethod execute :play-random [state command]
   (let [current (:current-player state)
         players (map :position (:players state))
         card (rand-nth (get-in state [:players current :hand]))]
-    (println "Player" current "plays" card)
-    (card-action state {:card card
+    ;; the player doesn't get a turn if inactive
+    (if (u/is-active state current)
+      (-> state
+          (execute {:type :play :card card})
+          (card-action {:card card
                         :target (rand-nth (u/available-targets state))
                         :player (rand-nth (u/active-players state))
-                        :guessed-card (rand-nth (filter #(not= :soldier %) (keys data/court-values)))
-                        })
-    ))
+                        :guessed-card (rand-nth (filter #(not= :soldier %) (keys d/court-values)))}))
+      state)))
 
 ;; discard a card ;;
 (defmethod execute :discard [state command]
@@ -98,8 +105,8 @@
 (defmethod execute :compare-hands [state command]
   (let [current (:current-player state)
         target (:target command)
-        current-val ((first (get-in state [:players current :hand])) data/court-values)
-        target-val ((first (get-in state [:players target :hand])) data/court-values)]
+        current-val ((first (get-in state [:players current :hand])) d/court-values)
+        target-val ((first (get-in state [:players target :hand])) d/court-values)]
     (cond
       (< current-val target-val) (execute state {:type :remove-player :player current})
       (> current-val target-val) (execute state {:type :remove-player :player target})
@@ -114,7 +121,7 @@
 ;; remove a player from the game ;;
 (defmethod execute :remove-player [state command]
   (let [player (:player command)]
-    (println "Removing" player)
+    (println "*** Removing" player "from the game.")
     (-> state
         (assoc-in [:players player :active] false))))
 
@@ -130,7 +137,8 @@
   "End the current player's turn and advance to the next available player."
   (let [current (:current-player state)
         players (:players state)
-        active (u/active-players state)
+        ;; ensure that the current player is counted as active
+        active (apply sorted-set (conj (u/active-players state) current))
         next-player (second (drop-while (complement #{current}) (cycle active)))
         game-over (u/game-over? state)]
   (if game-over
@@ -144,54 +152,55 @@
 ;; card actions
 ;;---------------------------
 
-(defmulti card-action
-  (fn [state command]
-
-  (println command)
-    (:card command)))
+(defmulti card-action (fn [state command] (println command) (:card command)))
 
 (defmethod card-action :soldier [state command]
   (-> state
-      (execute {:type :play :card :soldier})
       (execute {:type :guess :target (:target command) :guessed-card (:guessed-card command)})))
 
 (defmethod card-action :clown [state command]
   (-> state
-      (execute {:type :play :card :clown})
       (execute {:type :show-hand :target (:target command)})))
 
 (defmethod card-action :knight [state command]
   (-> state
-      (execute {:type :play :card :knight})
       (execute {:type :compare-hands :target (:target command)})))
 
-(defmethod card-action :priestess [state command]
-  (execute state {:type :play :card :priestess}))
+(defmethod card-action :priestess [state command] state)
 
 (defmethod card-action :wizard [state command]
   (-> state
-      (execute {:type :play :card :wizard})
       (execute {:type :discard-hand :player (:player command)})
       (execute {:type :draw :player (:player command)})))
 
 (defmethod card-action :general [state command]
   (-> state
-      (execute {:type :play :card :minister})
       (execute {:type :swap-hands :target (:target command)})))
 
-(defmethod card-action :minister [state command]
-  (execute state {:type :play :card :general}))
+(defmethod card-action :minister [state command] state)
 
-(defmethod card-action :princess [state command]
-  (execute state {:type :play :card :princess}))
+(defmethod card-action :princess [state command] state)
 
 ;;---------------------------
 ;; game status checks
 ;;---------------------------
 
+;; TODO: rename these, as check => boolean
 (defn check-princess [state]
   "Check if a player should be out for discarding the princess."
-  (if-let [player (:position (filter #(u/seq-contains? (:discard %) :princess) (:players state)))]
+  (if-let [player (:position (first (filter #(and
+                                               (:active %)
+                                               (u/seq-contains? (:discard %) :princess)) (:players state))))]
+    (execute state {:type :remove-player :player player})
+    state))
+
+(defn check-minister [state]
+  "Check if a player should be out for having the minister and 12+ rank points."
+  (if-let [player (:position (first (filter #(and
+                                               (:active %)
+                                               (u/seq-contains? (:hand %) :minister)
+                                               (< 11 (u/card-values d/court-values (:hand %))))
+                                            (:players state))))]
     (execute state {:type :remove-player :player player})
     state))
 

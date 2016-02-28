@@ -21,6 +21,74 @@
      (repeat 2 :clown)
      (repeat 5 :soldier)]))
 
+;; Ruleset names
+(defmulti card-names (fn [ruleset] ruleset))
+(defmethod card-names :original [_]
+  {:princess "Princess"
+   :minister "Minister"
+   :general "General"
+   :wizard "Wizard"
+   :priestess "Priestess"
+   :knight "Knight"
+   :clown "Clown"
+   :soldier "Soldier"})
+(defmethod card-names :tempest [_]
+  {:princess "Princess"
+   :minister "Countess"
+   :general "King"
+   :wizard "Prince"
+   :priestess "Handmaid"
+   :knight "Baron"
+   :clown "Priest"
+   :soldier "Guard"})
+(defmethod card-names :loot [_]
+  {:princess "Loot!"
+   :minister "Torbonium Dragon"
+   :general "Dread Gazebo"
+   :wizard "Net Troll"
+   :priestess "Wishing Ring"
+   :knight "Duck of Doom"
+   :clown "Maul Rat"
+   :soldier "Potted Plant"})
+(defmethod card-names :santa [_]
+  {:princess "Santa Claus"
+   :minister "Mrs. Claus"
+   :general "Kif"
+   :wizard "Toys"
+   :priestess "Snowman"
+   :knight "Gingerbread Man"
+   :clown "Reindeer"
+   :soldier "Krampus"})
+(defmethod card-names :adventure-time [_]
+  {:princess "Princess"
+   :minister "Lady"
+   :general "Wizard"
+   :wizard "Hero"
+   :priestess "Companion"
+   :knight "Gossip"
+   :clown "Royal Subject"
+   :soldier "Guard"})
+(defmethod card-names :batman [_]
+  {:princess "The Joker"
+   :minister "Harley Quinn"
+   :general "Two-Face"
+   :wizard "Poison Ivy"
+   :priestess "Robin"
+   :knight "Bane"
+   :clown "Catwoman"
+   :soldier "Batman"})
+(defmethod card-names :beast-academy [_]
+  {:princess "Calamitous Clod"
+   :minister "Professor Grok"
+   :general "Sergeant Rote"
+   :wizard "R & B"
+   :priestess "Fiona"
+   :knight "Kraken"
+   :clown "Ms. Q"
+   :soldier "Student"})
+;; TODO: Lord of the Rings (variant)
+
+;; Models
 (defrecord Player
   [active
    position
@@ -53,5 +121,4 @@
      :players (make-players total-players)
      :status :in-progress
      :deck deck
-     :burned-card burned-card
-     }))
+     :burned-card burned-card}))

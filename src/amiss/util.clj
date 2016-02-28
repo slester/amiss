@@ -12,6 +12,9 @@
   "Delete an element at a given position."
   (vec (concat (subvec v 0 pos) (subvec v (inc pos)))))
 
+(defn card-values [values cards]
+  (apply + (map #(% values) cards)))
+
 (defn available-targets [state]
   "Find available targets for a targeted action."
   (map :position (filter #(and (not= (:position %) (:current-player state)) (:active %) (not= (:last-played %) :priestess)) (:players state))))
@@ -19,6 +22,9 @@
 (defn active-players [state]
   "Find which players are still player"
   (map :position (filter :active (:players state))))
+
+(defn is-active [state player]
+  (get-in state [:players player :active]))
 
 (defn game-over? [state]
   "Check if the game has ended."
