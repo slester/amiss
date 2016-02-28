@@ -30,13 +30,13 @@
 (defn test-game [command-chan state-chan]
   (go
    (loop [s (<! state-chan)]
-     (when (= :in-progress (:status s))
-      (>! command-chan {:type :begin-turn})
-      (>! command-chan {:type :play-random})
-      (>! command-chan {:type :end-turn})
-      (recur (<! state-chan))))
-   (println "game over")
-   ))
+     (if (= :in-progress (:status s))
+       (do
+         (>! command-chan {:type :begin-turn})
+         (>! command-chan {:type :play-random})
+         (>! command-chan {:type :end-turn})
+         (recur (<! state-chan)))
+       (gameplay/end-game s)))))
 
 (defn -main []
   (println "in main")

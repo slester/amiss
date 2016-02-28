@@ -88,6 +88,35 @@
    :soldier "Student"})
 ;; TODO: Lord of the Rings (variant)
 
+;; Ruleset options
+(defmulti ruleset-options (fn [ruleset] ruleset))
+(defmethod ruleset-options :original [_]
+  {:minister :removed
+   :ties :shared})
+(defmethod ruleset-options :tempest [_]
+  {:minister :must-play
+   :ties :discard}
+  )
+(defmethod ruleset-options :loot [_]
+  {:minister :must-play
+   :ties :discard}
+  )
+(defmethod ruleset-options :santa [_]
+  {:minister :must-play
+   :ties :discard}
+  )
+(defmethod ruleset-options :adventure-time [_]
+  {:minister :must-play
+   :ties :discard}
+  )
+(defmethod ruleset-options :batman [_]
+  {:minister :must-play
+   :ties :discard}
+  )
+(defmethod ruleset-options :beast-academy [_]
+  {:minister :removed
+   :ties :shared})
+
 ;; Models
 (defrecord Player
   [active

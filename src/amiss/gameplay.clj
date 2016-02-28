@@ -212,3 +212,8 @@
   "Perform start of game actions."
   ;; all players draw a card
   (reduce #(execute % {:type :draw :player %2}) state (range (count (:players state)))))
+
+(defn end-game [state]
+  "Perform end of game actions."
+  ;; determine winner
+  )
