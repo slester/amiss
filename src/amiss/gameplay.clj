@@ -2,6 +2,7 @@
   (:require [amiss.util :as u]
             [amiss.data :as data]))
 
+(declare card-action)
 (declare check-princess)
 
 ;;---------------------------
@@ -27,15 +28,29 @@
 
 ;; play a card ;;
 (defmethod execute :play [state command]
-  (let [player (:current-player state)
+  (let [current (:current-player state)
         card (:card command)]
+    (println "Player" current "plays" card)
     (-> state
         ;; TODO: knowledge updates
-        (update-in [:players player :hand] u/remove-first card)
-        (assoc-in [:players player :last-played] card)
-        (update-in [:players player :discard] conj card)
+        (update-in [:players current :hand] u/remove-first card)
+        (assoc-in [:players current :last-played] card)
+        (update-in [:players current :discard] conj card)
         (check-princess)
         )))
+
+;; play a random card ;;
+(defmethod execute :play-random [state command]
+  (let [current (:current-player state)
+        players (map :position (:players state))
+        card (rand-nth (get-in state [:players current :hand]))]
+    (println "Player" current "plays" card)
+    (card-action state {:card card
+                        :target (rand-nth (u/available-targets state))
+                        :player (rand-nth (u/active-players state))
+                        :guessed-card (rand-nth (filter #(not= :soldier %) (keys data/court-values)))
+                        })
+    ))
 
 ;; discard a card ;;
 (defmethod execute :discard [state command]
@@ -61,36 +76,35 @@
 
 ;; swap hands ;;
 (defmethod execute :swap-hands [state command]
-  (let [a (:player-a command)
-        b (:player-b command)
-        a-hand (get-in state [:players a :hand])
-        b-hand (get-in state [:players b :hand])]
+  (let [current (:current-player state)
+        target (:target command)
+        current-hand (get-in state [:players current :hand])
+        target-hand (get-in state [:players target :hand])]
     (-> state
         ;; TODO: knowledge updates
-        (assoc-in [:players a :hand] b-hand)
-        (assoc-in [:players b :hand] a-hand))))
+        (assoc-in [:players current :hand] target-hand)
+        (assoc-in [:players target :hand] current-hand))))
 
 ;; show hand of player b to player a ;;
 (defmethod execute :show-hand [state command]
-  (let [a (:player-a command)
-        b (:player-b command)
-        b-hand (get-in state [:players b :hand])]
+  (let [current (:current-player state)
+        target (:target command)
+        target-hand (get-in state [:players target :hand])]
     (-> state
         ;; TODO: knowledge updates
         )))
 
 ;; compare hands ;;
 (defmethod execute :compare-hands [state command]
-  (let [a (:player-a command)
-        b (:player-b command)
-        a-val ((first (get-in state [:players a :hand])) data/court-values)
-        b-val ((first (get-in state [:players b :hand])) data/court-values)]
+  (let [current (:current-player state)
+        target (:target command)
+        current-val ((first (get-in state [:players current :hand])) data/court-values)
+        target-val ((first (get-in state [:players target :hand])) data/court-values)]
     (cond
-      (< a-val b-val) (execute state {:type :remove-player :player a})
-      (> a-val b-val) (execute state {:type :remove-player :player b})
+      (< current-val target-val) (execute state {:type :remove-player :player current})
+      (> current-val target-val) (execute state {:type :remove-player :player target})
       :else state ;; TODO does this do anything else?
-      )
-    ))
+      )))
 
 (defmethod execute :guess [state command]
   ;; TODO
@@ -100,14 +114,23 @@
 ;; remove a player from the game ;;
 (defmethod execute :remove-player [state command]
   (let [player (:player command)]
-  (-> state
-      (assoc-in [:players player :active] false))))
+    (println "Removing" player)
+    (-> state
+        (assoc-in [:players player :active] false))))
+
+(defmethod execute :begin-turn [state command]
+  "Begin a player's turn."
+  (let [player (:current-player state)]
+    (println "It is now player" (str player "'s turn."))
+    (-> state
+        (execute {:type :draw :player player}))
+    ))
 
 (defmethod execute :end-turn [state command]
   "End the current player's turn and advance to the next available player."
   (let [current (:current-player state)
         players (:players state)
-        active (:position (filter :active players))
+        active (u/active-players state)
         next-player (second (drop-while (complement #{current}) (cycle active)))
         game-over (u/game-over? state)]
   (if game-over
@@ -122,22 +145,25 @@
 ;;---------------------------
 
 (defmulti card-action
-  (fn [state command] (:card command)))
+  (fn [state command]
+
+  (println command)
+    (:card command)))
 
 (defmethod card-action :soldier [state command]
   (-> state
-      (execute {:type :play :card :soldier}))
-      (execute {:type :guess :player-a (:player-a command) :player-b (:player-b command) :guessed-card (:guessed-card command)}))
+      (execute {:type :play :card :soldier})
+      (execute {:type :guess :target (:target command) :guessed-card (:guessed-card command)})))
 
 (defmethod card-action :clown [state command]
   (-> state
       (execute {:type :play :card :clown})
-      (execute {:type :show-hand :player-a (:player-a command) :player-b (:player-b command)})))
+      (execute {:type :show-hand :target (:target command)})))
 
 (defmethod card-action :knight [state command]
   (-> state
       (execute {:type :play :card :knight})
-      (execute {:type :compare-hand :player-a (:player-a command) :player-b (:player-b command)})))
+      (execute {:type :compare-hands :target (:target command)})))
 
 (defmethod card-action :priestess [state command]
   (execute state {:type :play :card :priestess}))
@@ -151,7 +177,7 @@
 (defmethod card-action :general [state command]
   (-> state
       (execute {:type :play :card :minister})
-      (execute {:type :swap-hands :player-a (:player-a command) :player-b (:player-b command)})))
+      (execute {:type :swap-hands :target (:target command)})))
 
 (defmethod card-action :minister [state command]
   (execute state {:type :play :card :general}))

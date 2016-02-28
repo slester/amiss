@@ -14,7 +14,11 @@
 
 (defn available-targets [state]
   "Find available targets for a targeted action."
-  (map :position (filter #(and (:active %) (not= (:last-played %) :priestess)) (:players state))))
+  (map :position (filter #(and (not= (:position %) (:current-player state)) (:active %) (not= (:last-played %) :priestess)) (:players state))))
+
+(defn active-players [state]
+  "Find which players are still player"
+  (map :position (filter :active (:players state))))
 
 (defn game-over? [state]
   "Check if the game has ended."
