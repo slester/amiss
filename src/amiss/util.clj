@@ -21,7 +21,11 @@
 
 (defn active-players [state]
   "Find which players are still player"
-  (map :position (filter :active (:players state))))
+  (filter :active (:players state)))
+
+(defn active-player-positions [state]
+  "Same as active-players, but returning positions instead of Player records."
+  (map :position (active-players state)))
 
 (defn is-active [state player]
   (get-in state [:players player :active]))

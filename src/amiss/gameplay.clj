@@ -12,7 +12,14 @@
 ;;---------------------------
 
 (defmulti execute
-  (fn [state command] (:type command)))
+  (fn [state command]
+    (if (= -1 (:target command))
+      :no-action
+      (:type command))))
+
+(defmethod execute :no-action [state command]
+  (println "No action can be taken.")
+  state)
 
 (defmethod execute :draw [state command]
   (let [player (:player command)
@@ -54,8 +61,8 @@
       (-> state
           (execute {:type :play :card card})
           (card-action {:card card
-                        :target (rand-nth (u/available-targets state))
-                        :player (rand-nth (u/active-players state))
+                        :target (if (empty? (u/available-targets state)) -1 (rand-nth (u/available-targets state)))
+                        :player (rand-nth (u/active-player-positions state))
                         :guessed-card (rand-nth (filter #(not= :soldier %) (keys d/court-values)))}))
       state)))
 
@@ -138,7 +145,7 @@
   (let [current (:current-player state)
         players (:players state)
         ;; ensure that the current player is counted as active
-        active (apply sorted-set (conj (u/active-players state) current))
+        active (apply sorted-set (conj (u/active-player-positions state) current))
         next-player (second (drop-while (complement #{current}) (cycle active)))
         game-over (u/game-over? state)]
   (if game-over
@@ -208,12 +215,43 @@
 ;; game progression
 ;;---------------------------
 
-(defn start-game [state]
-  "Perform start of game actions."
+(defn start-round [state]
+  "Perform start of round actions."
   ;; all players draw a card
   (reduce #(execute % {:type :draw :player %2}) state (range (count (:players state)))))
 
-(defn end-game [state]
-  "Perform end of game actions."
-  ;; determine winner
-  )
+(defn highest-rank [state]
+  (:position (first (sort-by (comp - :points)
+                             (for [player (u/active-players state)
+                                   :let [position (:position player)
+                                         points ((first (:hand player)) d/court-values)]]
+                               (hash-map :position position :points points))))))
+
+(defn tied-players [state]
+  (let [winner (highest-rank state)]
+    (filter #(= (:hand %) (get-in state [:players winner :hand])) (u/active-players state))))
+
+(defn most-discard-points [state]
+  (:position (first (sort-by (comp - :points)
+                             (for [player (tied-players state)
+                                   :let [position (:position player)
+                                         points (u/card-values d/court-values (:discard player))]]
+                               (hash-map :position position :points points))))))
+
+(defn determine-winner [state]
+  "Determine the winner, according to the ruleset being used."
+  (let [remaining (map :position (u/active-players state))
+        tied (map :position (tied-players state))
+        tie-breaker (:ties (d/ruleset-options cfg/ruleset))]
+    (cond
+      (= 1 (count remaining)) (first remaining)
+      (= 1 (count tied)) (highest-rank state)
+      (= tie-breaker :shared) tied
+      :else (most-discard-points state))))
+
+(defn end-round [state]
+  "Perform end of round actions."
+  (let [ws (determine-winner state)]
+    (if (list? ws)
+      (println "The following players have tied:" (clojure.string/join ", " ws))
+      (println "Player" ws "is the winner!"))))

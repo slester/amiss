@@ -9,7 +9,7 @@
 ;; players put commands onto the command chan
 ;; and read from the state-chan to update their internal state
 (defn game [command-chan state-chan]
-  (let [initial-state (gameplay/start-game (data/make-state total-players))]
+  (let [initial-state (gameplay/start-round (data/make-state total-players))]
     (go
       (>! state-chan initial-state)
       (loop [state initial-state
@@ -36,7 +36,7 @@
          (>! command-chan {:type :play-random})
          (>! command-chan {:type :end-turn})
          (recur (<! state-chan)))
-       (gameplay/end-game s)))))
+       (gameplay/end-round s)))))
 
 (defn -main []
   (println "in main")
