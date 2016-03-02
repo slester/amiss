@@ -15,7 +15,10 @@
 (defn card-values [values cards]
   (apply + (map #(% values) cards)))
 
-(defn available-targets [state]
+(defn other-player-positions [state player]
+  (map :position (filter #(and (:active %) (not= player (:position %))) (:players state))))
+
+(defn available-target-positions [state]
   "Find available targets for a targeted action."
   (map :position (filter #(and (not= (:position %) (:current-player state)) (:active %) (not= (:last-played %) :priestess)) (:players state))))
 

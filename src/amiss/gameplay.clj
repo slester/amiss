@@ -1,6 +1,7 @@
 (ns amiss.gameplay
   (:require [amiss.util :as u]
             [amiss.config :as cfg]
+            [amiss.knowledge :as k]
             [amiss.data :as d]))
 
 (declare card-action)
@@ -13,6 +14,7 @@
 
 (defmulti execute
   (fn [state command]
+    ;; XXX: does this even work?
     (if (= -1 (:target command))
       :no-action
       (:type command))))
@@ -30,9 +32,9 @@
     (println "Player" player "draws" (card (d/card-names cfg/ruleset)))
     (if active?
       (-> state
-          ;; TODO: knowledge updates
           (update-in [:players player :hand] conj card)
           (assoc :deck new-deck)
+          (k/remove-from-deck player card)
           (check-minister))
       state)))
 
@@ -43,12 +45,11 @@
     (println "Player" current "plays" (card (d/card-names cfg/ruleset)))
     (if (u/is-active state current)
       (-> state
-          ;; TODO: knowledge updates
           (update-in [:players current :hand] u/remove-first card)
           (assoc-in [:players current :last-played] card)
           (update-in [:players current :discard] conj card)
-          (check-princess)
-          )
+          (k/remove-from-other-players current card)
+          (check-princess))
       state)))
 
 ;; play a random card ;;
@@ -61,7 +62,8 @@
       (-> state
           (execute {:type :play :card card})
           (card-action {:card card
-                        :target (if (empty? (u/available-targets state)) -1 (rand-nth (u/available-targets state)))
+                        ;; build this into available-target-positions?
+                        :target (if (empty? (u/available-target-positions state)) -1 (rand-nth (u/available-target-positions state)))
                         :player (rand-nth (u/active-player-positions state))
                         :guessed-card (rand-nth (filter #(not= :soldier %) (keys d/court-values)))}))
       state)))
@@ -71,22 +73,20 @@
   (let [player (:player command)
         card (:card command)]
     (-> state
-        ;; TODO: knowledge updates
         (update-in [:players player :hand] u/remove-first card)
         (update-in [:players player :discard] conj card)
-        (check-princess)
-        )))
+        (k/remove-from-other-players player card)
+        (check-princess))))
 
 ;; discard an entire hand ;;
 (defmethod execute :discard-hand [state command]
   (let [player (:player command)
         hand (get-in state [:players player :hand])]
     (-> state
-        ;; TODO: knowledge updates
         (assoc-in [:players player :hand] '())
         (update-in [:players player :discard] into hand)
-        (check-princess)
-        )))
+        (k/remove-from-other-players player hand)
+        (check-princess))))
 
 ;; swap hands ;;
 (defmethod execute :swap-hands [state command]
@@ -252,6 +252,6 @@
 (defn end-round [state]
   "Perform end of round actions."
   (let [ws (determine-winner state)]
-    (if (list? ws)
+    (if (seq? ws)
       (println "The following players have tied:" (clojure.string/join ", " ws))
       (println "Player" ws "is the winner!"))))
