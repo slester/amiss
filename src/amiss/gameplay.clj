@@ -34,7 +34,7 @@
       (-> state
           (update-in [:players player :hand] conj card)
           (assoc :deck new-deck)
-          (k/remove-from-deck player card)
+          (k/remove-from-deck player [card])
           (check-minister))
       state)))
 
@@ -48,7 +48,7 @@
           (update-in [:players current :hand] u/remove-first card)
           (assoc-in [:players current :last-played] card)
           (update-in [:players current :discard] conj card)
-          (k/remove-from-other-players current card)
+          (k/remove-from-other-players current [card])
           (check-princess))
       state)))
 
@@ -75,7 +75,7 @@
     (-> state
         (update-in [:players player :hand] u/remove-first card)
         (update-in [:players player :discard] conj card)
-        (k/remove-from-other-players player card)
+        (k/remove-from-other-players player [card])
         (check-princess))))
 
 ;; discard an entire hand ;;
