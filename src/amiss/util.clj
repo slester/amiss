@@ -30,6 +30,10 @@
   "Same as active-players, but returning positions instead of Player records."
   (map :position (active-players state)))
 
+(defn all-players-except [state & excluded-players]
+  (let [players (active-player-positions state)]
+    (into '() (clojure.set/difference (set players) (set excluded-players)))))
+
 (defn is-active [state player]
   (get-in state [:players player :active]))
 

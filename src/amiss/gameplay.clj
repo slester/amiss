@@ -34,7 +34,7 @@
       (-> state
           (update-in [:players player :hand] conj card)
           (assoc :deck new-deck)
-          (k/remove-from-deck player [card])
+          (k/drew-card player card)
           (check-minister))
       state)))
 
@@ -48,7 +48,7 @@
           (update-in [:players current :hand] u/remove-first card)
           (assoc-in [:players current :last-played] card)
           (update-in [:players current :discard] conj card)
-          (k/remove-from-other-players current [card])
+          (k/discarded-card current [card])
           (check-princess))
       state)))
 
@@ -75,7 +75,7 @@
     (-> state
         (update-in [:players player :hand] u/remove-first card)
         (update-in [:players player :discard] conj card)
-        (k/remove-from-other-players player [card])
+        (k/discarded-card player [card])
         (check-princess))))
 
 ;; discard an entire hand ;;
@@ -85,7 +85,7 @@
     (-> state
         (assoc-in [:players player :hand] '())
         (update-in [:players player :discard] into hand)
-        (k/remove-from-other-players player hand)
+        (k/discarded-card player hand)
         (check-princess))))
 
 ;; swap hands ;;
@@ -95,7 +95,7 @@
         current-hand (get-in state [:players current :hand])
         target-hand (get-in state [:players target :hand])]
     (-> state
-        ;; TODO: knowledge updates
+        (k/swap current target)
         (assoc-in [:players current :hand] target-hand)
         (assoc-in [:players target :hand] current-hand))))
 
@@ -105,8 +105,7 @@
         target (:target command)
         target-hand (get-in state [:players target :hand])]
     (-> state
-        ;; TODO: knowledge updates
-        )))
+        (k/set-as current target target-hand))))
 
 ;; compare hands ;;
 (defmethod execute :compare-hands [state command]
@@ -121,9 +120,14 @@
       )))
 
 (defmethod execute :guess [state command]
-  ;; TODO
-  state
-  )
+  (let [current (:current-player state)
+        target (:target command)
+        target-hand (get-in state [:players target :hand])
+        guess (:guessed-card command)]
+    (println "Player" current "guesses that player" target "has a" (guess (d/card-names cfg/ruleset)))
+    (if (= guess target-hand)
+      (execute state {:type :remove-player :player target})
+      state)))
 
 ;; remove a player from the game ;;
 (defmethod execute :remove-player [state command]

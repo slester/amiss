@@ -11,5 +11,4 @@
     (is (thrown? Exception (make-players 5))))
   (testing "the positions are correctly assigned"
     (is (= [0 1 2 3] (map :position (make-players))))
-    )
-  )
+    ))
