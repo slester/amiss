@@ -27,9 +27,11 @@
   (let [player (:player command)
         active? (get-in state [:players player :active])
         deck (:deck state)
+        hand (get-in state [:players player :hand])
         card (or (first deck) (:burned-card state))
         new-deck (rest deck)]
-    (println "Player" player "draws" (card (d/card-names cfg/ruleset)))
+    (println "Player" player "has" hand)
+    (println "Player" player "draws" (card (d/card-names cfg/ruleset)) ", had" (if (empty? hand) "nothing" ((first hand) (d/card-names cfg/ruleset))))
     (if active?
       (-> state
           (update-in [:players player :hand] conj card)
@@ -116,8 +118,8 @@
     (cond
       (< current-val target-val) (execute state {:type :remove-player :player current})
       (> current-val target-val) (execute state {:type :remove-player :player target})
-      :else state ;; TODO does this do anything else?
-      )))
+      :else state))) ;; TODO does this do anything else?
+      
 
 (defmethod execute :guess [state command]
   (let [current (:current-player state)
@@ -134,15 +136,17 @@
   (let [player (:player command)]
     (println "*** Removing" player "from the game.")
     (-> state
-        (assoc-in [:players player :active] false))))
+        (assoc-in [:players player :active] false)
+        (execute {:type :discard-hand :player player}))))
+
 
 (defmethod execute :begin-turn [state command]
   "Begin a player's turn."
   (let [player (:current-player state)]
     (println "It is now player" (str player "'s turn."))
     (-> state
-        (execute {:type :draw :player player}))
-    ))
+        (execute {:type :draw :player player}))))
+    
 
 (defmethod execute :end-turn [state command]
   "End the current player's turn and advance to the next available player."
@@ -152,9 +156,9 @@
         active (apply sorted-set (conj (u/active-player-positions state) current))
         next-player (second (drop-while (complement #{current}) (cycle active)))
         game-over (u/game-over? state)]
-  (if game-over
-    (assoc state :status :game-over)
-    (assoc state :current-player next-player))))
+   (if game-over
+     (assoc state :status :game-over)
+     (assoc state :current-player next-player))))
 
 (defn do-commands [state commands]
   (reduce (fn [current-state command] (execute current-state command)) state commands))

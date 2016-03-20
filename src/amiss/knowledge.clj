@@ -4,13 +4,13 @@
             [amiss.data :as d]))
 
 (defn remove-card [knowledge card]
-  (println knowledge card)
   (if (contains? knowledge card)
     (update knowledge card (comp #(max 0 %) dec))
     knowledge))
 
 (defn set-as [state player target hand]
   "Sets a player's knowledge of another player."
+  (println "Player" player "knows that player" target "has" hand)
   (assoc-in state [:players player :player-knowledge target] (hash-map (first hand) 1)))
 
 (defn remove-from-deck [state player cards]
@@ -23,12 +23,11 @@
 (defn remove-from-player [state player target cards]
   {:pre [(coll? cards)]}
   "Remove cards from the player's knowledge about the given target."
-  (println "removing" cards "from player" player)
+  (println "removing" cards "from player" player "concerning" target)
   (let [player-knowledge (get-in state [:players player :player-knowledge target])
         new-knowledge (reduce #(remove-card % %2) player-knowledge cards)]
     (assoc-in state [:players player :player-knowledge target] new-knowledge)))
 
-;; TODO remove-from-all and remove-from-others are confusingly named
 (defn drew-card [state player card]
   "Remove card from a player's knowledge of all of the players as well as their deck knowledge."
   (as-> state s
