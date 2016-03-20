@@ -14,7 +14,6 @@
 
 (defmulti execute
   (fn [state command]
-    ;; XXX: does this even work?
     (if (= -1 (:target command))
       :no-action
       (:type command))))
@@ -30,8 +29,12 @@
         hand (get-in state [:players player :hand])
         card (or (first deck) (:burned-card state))
         new-deck (rest deck)]
-    (println "Player" player "has" hand)
-    (println "Player" player "draws" (card (d/card-names cfg/ruleset)) ", had" (if (empty? hand) "nothing" ((first hand) (d/card-names cfg/ruleset))))
+    (when cfg/dev?
+      (println "Player" player "draws" (card (d/card-names cfg/ruleset))
+               (if (empty? hand) "into their empty hand"
+                                 (str "into hand ("
+                                      ((first hand) (d/card-names cfg/ruleset))
+                                      ")"))))
     (if active?
       (-> state
           (update-in [:players player :hand] conj card)
@@ -57,17 +60,20 @@
 ;; play a random card ;;
 (defmethod execute :play-random [state command]
   (let [current (:current-player state)
-        players (map :position (:players state))
-        card (rand-nth (get-in state [:players current :hand]))]
+        card (rand-nth (get-in state [:players current :hand]))
+        target (if (empty? (u/available-target-positions state)) -1 (rand-nth (u/available-target-positions state)))
+        player (rand-nth (u/active-player-positions state))
+        guessed-card (k/choose-guess state current target)]
+
     ;; the player doesn't get a turn if inactive
     (if (u/is-active state current)
       (-> state
           (execute {:type :play :card card})
           (card-action {:card card
                         ;; build this into available-target-positions?
-                        :target (if (empty? (u/available-target-positions state)) -1 (rand-nth (u/available-target-positions state)))
-                        :player (rand-nth (u/active-player-positions state))
-                        :guessed-card (rand-nth (filter #(not= :soldier %) (keys d/court-values)))}))
+                        :target target
+                        :player player
+                        :guessed-card guessed-card}))
       state)))
 
 ;; discard a card ;;
@@ -96,6 +102,7 @@
         target (:target command)
         current-hand (get-in state [:players current :hand])
         target-hand (get-in state [:players target :hand])]
+    (println "Players" current "and" target "swap hands")
     (-> state
         (k/swap current target)
         (assoc-in [:players current :hand] target-hand)
@@ -106,6 +113,7 @@
   (let [current (:current-player state)
         target (:target command)
         target-hand (get-in state [:players target :hand])]
+    (println "Player" target "shows his hand to player" current)
     (-> state
         (k/set-as current target target-hand))))
 
@@ -115,18 +123,19 @@
         target (:target command)
         current-val ((first (get-in state [:players current :hand])) d/court-values)
         target-val ((first (get-in state [:players target :hand])) d/court-values)]
+    (println "Players" current "and" target "compare hands.")
     (cond
       (< current-val target-val) (execute state {:type :remove-player :player current})
       (> current-val target-val) (execute state {:type :remove-player :player target})
-      :else state))) ;; TODO does this do anything else?
-      
+      :else state))) ;; TODO equal gives people complicated information
 
 (defmethod execute :guess [state command]
   (let [current (:current-player state)
         target (:target command)
         target-hand (get-in state [:players target :hand])
         guess (:guessed-card command)]
-    (println "Player" current "guesses that player" target "has a" (guess (d/card-names cfg/ruleset)))
+    (when (some? guess)
+      (println "Player" current "guesses that player" target "has a" (guess (d/card-names cfg/ruleset))))
     (if (= guess target-hand)
       (execute state {:type :remove-player :player target})
       state)))
@@ -146,12 +155,11 @@
     (println "It is now player" (str player "'s turn."))
     (-> state
         (execute {:type :draw :player player}))))
-    
+
 
 (defmethod execute :end-turn [state command]
   "End the current player's turn and advance to the next available player."
   (let [current (:current-player state)
-        players (:players state)
         ;; ensure that the current player is counted as active
         active (apply sorted-set (conj (u/active-player-positions state) current))
         next-player (second (drop-while (complement #{current}) (cycle active)))

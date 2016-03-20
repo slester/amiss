@@ -10,7 +10,6 @@
 
 (defn set-as [state player target hand]
   "Sets a player's knowledge of another player."
-  (println "Player" player "knows that player" target "has" hand)
   (assoc-in state [:players player :player-knowledge target] (hash-map (first hand) 1)))
 
 (defn remove-from-deck [state player cards]
@@ -23,7 +22,6 @@
 (defn remove-from-player [state player target cards]
   {:pre [(coll? cards)]}
   "Remove cards from the player's knowledge about the given target."
-  (println "removing" cards "from player" player "concerning" target)
   (let [player-knowledge (get-in state [:players player :player-knowledge target])
         new-knowledge (reduce #(remove-card % %2) player-knowledge cards)]
     (assoc-in state [:players player :player-knowledge target] new-knowledge)))
@@ -37,7 +35,6 @@
 (defn discarded-card [state player cards]
   {:pre [(coll? cards)]}
   "Remove cards from all of the other players' knowledge about the given player as well as from their deck knowledge."
-  (println "removing" cards "from players except" player)
   (as-> state s
       (reduce #(remove-from-deck % %2 cards) s (u/other-player-positions s player))
       (reduce #(remove-from-player % %2 player cards) s (u/other-player-positions s player))))
@@ -65,3 +62,15 @@
                         (assoc-in [:players p :player-knowledge player-b] a-knowledge))))
                 x
                 (u/all-players-except state player-a player-b)))))
+
+(defn choose-guess [state player target]
+  "Compute the most likely card(s) the player thinks the target has."
+  (let [k (get-in state [:players player :player-knowledge target])
+        choices (filter #(not= (first %) :soldier) k)]
+      (rand-nth (u/max-keys choices))))
+
+
+
+
+
+

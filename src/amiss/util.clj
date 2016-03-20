@@ -12,6 +12,9 @@
   "Delete an element at a given position."
   (vec (concat (subvec v 0 pos) (subvec v (inc pos)))))
 
+(defn max-keys [coll]
+  (keys (filter #(= (val %) (apply max (vals coll))) coll)))
+
 (defn card-values [values cards]
   (apply + (map #(% values) cards)))
 
